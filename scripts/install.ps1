@@ -1,4 +1,4 @@
-# 喵呜 · 一键安装（Windows PowerShell）
+﻿# 喵呜 · 一键安装（Windows PowerShell）
 #
 # 用法：把本插件 clone 到 Miao-Yunzai/plugins/miao-wu 之后，在插件目录里执行：
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
