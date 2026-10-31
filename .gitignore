@@ -1,0 +1,19 @@
+# 运行时数据（记忆、出图结果）
+data/
+
+# 真实配置（含密钥），示例见 config/config.example.yaml
+config/config.yaml
+
+# 用户私有内容：自己的角色卡、世界书、绘图知识库
+# （示例骨架见 config/draw-knowledge.example.md）
+config/characters/
+config/lorebooks/
+config/draw-knowledge.md
+
+# 日志
+*.log
+
+# 杂项
+.DS_Store
+Thumbs.db
+node_modules/

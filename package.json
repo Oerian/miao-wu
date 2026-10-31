@@ -1,0 +1,9 @@
+{
+  "name": "miao-wu",
+  "version": "0.1.0",
+  "description": "喵呜 · 云崽角色扮演插件：多后端对话 / 角色卡与出场转换 / 分层记忆 / 上下文压缩 / 绘图辅助",
+  "type": "module",
+  "main": "index.js",
+  "keywords": ["yunzai", "roleplay", "sillytavern", "character-card", "llm"],
+  "license": "MIT"
+}

@@ -1,0 +1,287 @@
+# ============================================================
+# 喵呜 · 配置
+#
+# 改完发「#喵呜 重载」生效，不用重启机器人。
+# 所有字段都可以不写，不写就用 lib/config.js 里的默认值。
+# ============================================================
+
+enabled: true
+
+# 默认后端。对应下面 providers 里的某个 key
+active: cpa-38
+
+# ------------------------------------------------------------
+# 对话后端
+# type: openai = OpenAI 兼容接口（官方 / 各类中转 / vLLM 都行）
+#       ollama = 本地 Ollama 原生接口
+#       gemini = Google 原生接口（直连时用，走中转就用 openai）
+# ------------------------------------------------------------
+providers:
+  # 主力：gemini-3.8-flash-high。结构化输出稳，写绘图 tag 讲究
+  cpa-38:
+    type: openai
+    baseUrl: http://127.0.0.1:8317/v1
+    apiKey: ""
+    model: gemini-3.8-flash-high
+    temperature: 0.95
+    maxTokens: 400
+    fallbackModel: gemini-3-flash
+
+  # 快速版，2.6s/条，语气最贴「短、懒」
+  cpa:
+    type: openai
+    baseUrl: http://127.0.0.1:8317/v1
+    apiKey: ""
+    model: gemini-3-flash
+    temperature: 1.0
+    maxTokens: 300
+    fallbackModel: gemini-3.1-flash-lite
+
+  # Claude：动作描写更细腻，代价是慢一截
+  cpa-claude:
+    type: openai
+    baseUrl: http://127.0.0.1:8317/v1
+    apiKey: ""
+    model: claude-sonnet-5-5-high
+    temperature: 1.0
+    maxTokens: 600
+    fallbackModel: gemini-3-flash
+
+  # 本地兜底，免费离线。断网或中转挂了切这个
+  ollama:
+    type: ollama
+    baseUrl: http://127.0.0.1:11434
+    model: qwen3-8b
+    temperature: 0.9
+    topP: 0.9
+    maxTokens: 300
+    numCtx: 8192
+    think: false
+    keepAlive: 30m
+
+  deepseek:
+    type: openai
+    baseUrl: https://api.deepseek.com/v1
+    apiKey: ""
+    model: deepseek-chat
+    temperature: 1.0
+    maxTokens: 300
+
+# ------------------------------------------------------------
+# 生效范围
+# ------------------------------------------------------------
+scope:
+  private: true
+  group: false          # 群聊默认关；开了也只在被 @ 时响应
+  masterOnly: true      # true = 只服务主人 + 白名单里的人
+  whitelist: []         # 其他可用者的 QQ；别人私聊发口令会自动加进来
+  blacklist: []
+  unlockEnabled: true   # 陌生人私聊发 unlockKey 这个词就自动进白名单
+  unlockKey: 喵呜       # 口令。#喵呜 密钥 新口令 可以换
+  unlockNotify: true    # 有人进来时通知主人
+  maxUsers: 20
+  groupWhitelist: []    # 空 = 所有群都行（前提 group 开了）
+  ignorePrefix: ["#", "/"]
+  maxChars: 500
+
+# ------------------------------------------------------------
+# 对话
+# ------------------------------------------------------------
+chat:
+  maxTurns: 12          # 带多少轮原文进上下文
+  ttlMin: 240           # 多久不说话就失忆
+  temperature: 1.0
+  maxTokens: 400
+  maxReplyChars: 80     # 单条回复字数上限，超了截
+
+# ------------------------------------------------------------
+# 上下文压缩
+#
+# mode：
+#   remind —— 到线只提醒你，发「#喵呜 压缩」才真压（默认）
+#   auto   —— 到线自动压
+#   manual —— 一句都不提
+#
+# 默认不自动压：摘要是**有损**的，会把她的语气磨平（角色变质）。
+# 而且该不该压取决于这轮用的模型 —— 8k 本地模型和 1M Gemini 差两个数量级。
+# ------------------------------------------------------------
+compress:
+  enabled: true
+  mode: remind          # remind / auto / manual
+  triggerTurns: 16      # 超过这么多轮就提醒
+  keepTurns: 8          # 压完保留最近几轮原文
+  warnRatio: 0.75       # 窗口占用超过这个比例也提醒
+  remindCooldownMin: 30 # 两次提醒最小间隔（分钟）
+  turnsFloorRatio: 0.5  # 轮数触发的前提：窗口至少用掉这么多（1M 的模型不该按 16 轮喊）
+  keepCharacter: true   # 摘要时叮嘱"她的性格和说话方式不能丢"
+  maxSummaryChars: 600
+  provider: ""          # 空 = 用 active。想省钱可以填 cpa（flash）
+
+# ------------------------------------------------------------
+# 记忆
+# ------------------------------------------------------------
+memory:
+  enabled: true
+  defaultProfile: default   # 默认存档名，一个 QQ 可以开多份（#喵呜 存档）
+  maxEpisodes: 200
+  autoExtract: false    # 开 = 每轮后多花一次调用抽事件，费钱
+  extractProvider: ""
+  dataDir: data         # 相对插件目录
+
+# ------------------------------------------------------------
+# 角色与出场
+# ------------------------------------------------------------
+cast:
+  default: yinghua      # 默认出场角色 id
+  allowed: []           # 空 = 全部允许「出场」命令切换
+  dir: config/characters
+  handover: true        # 换人时生成交接说明，新角色知道刚才聊了啥
+  handoverTurns: 6
+  writerProvider: ""    # 「写人设 / 改人设」用哪个后端，空 = 跟 active 一样
+
+# ------------------------------------------------------------
+# 酒馆式交互
+# ------------------------------------------------------------
+tavern:
+  autoOpening: true     # 存档第一次说话时，让她先开口（卡里有开场白才有）
+  openingOnSwitch: true # 「出场」换人时也演一场开场白
+  openingDelay: [600, 1500]
+  openingMaxChars: 220  # 开场白超过这个字数会截断
+
+# ------------------------------------------------------------
+# 世界书
+# ------------------------------------------------------------
+lorebook:
+  enabled: true
+  dir: config/lorebooks
+  maxEntries: 6
+  maxChars: 1200
+
+# ------------------------------------------------------------
+# 沉浸强化
+# ------------------------------------------------------------
+immersion:
+  enabled: true
+  postHistory: true     # 后置指令（放对话历史之后，约束力最强）
+  authorNote: ""        # 作者注释，会并进后置指令。例：现在是夏天
+  clean: true
+  antiRepeat: true
+  repeatThreshold: 0.85
+
+# ------------------------------------------------------------
+# 活人感
+# ------------------------------------------------------------
+humanize:
+  maxSegments: 3
+  splitChars: ["。", "！", "？", "～", "…", "\n"]
+  typingPerChar: 55
+  typingMin: 400
+  typingMax: 2400
+  segmentGap: [350, 1100]
+  readDelay: [300, 1500]
+
+# ------------------------------------------------------------
+# 主动发言
+#   时间窗 → 多久没聊 → 骰子 → 每日上限，再加"连发上限"和"深夜静音"
+# ------------------------------------------------------------
+proactive:
+  enabled: false
+  activeHours: [9, 23]
+  weekendHours: []      # 周末单独时段，例：[10, 24]；空 = 跟上面一样
+  minIdleMin: 120       # 至少两小时没聊才可能主动
+  maxIdleMin: 720       # 超过 12 小时就不打扰
+  chance: 0.45
+  cronMin: 40           # 隔多久检查一次（分钟）
+  maxPerDay: 3
+  style: auto           # auto / life / ask / miss / tease
+  topics: []            # 话题池，非空时随机挑一个当引子
+  mentionTime: true     # 带上"这么晚还不睡"这种时间感
+  maxNoReply: 2         # 连发几条没回就停（0 = 不限）
+  nightQuiet: true      # 23:00-07:00 不发
+  emoji: false
+
+# ------------------------------------------------------------
+# 时钟
+#   把真实时间（日期/星期/农历节日）塞进提示词，并支持定时提醒
+# ------------------------------------------------------------
+clock:
+  enabled: true
+  showDate: true
+  showFestival: true
+  timezone: ""          # 空 = 系统时区。例：Asia/Shanghai
+  reminds: true
+  maxPending: 20
+  inCharacter: true     # 到点用角色口吻说
+
+# ------------------------------------------------------------
+# 语音（TTS）
+#   先起服务：python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
+#   refAudio 5~10 秒单人干声；refText 必须和音频里说的一字不差
+# ------------------------------------------------------------
+tts:
+  enabled: false
+  engine: gptsovits     # gptsovits / openai
+  url: http://127.0.0.1:9880
+  refAudio: ""
+  refText: ""
+  refLang: zh
+  textLang: zh
+  splitMethod: cut5
+  speedFactor: 1.0
+  mode: sometimes       # off / sometimes / all
+  chance: 0.25
+  maxChars: 120
+  timeoutMs: 60000
+  keepText: true
+
+# ------------------------------------------------------------
+# 工具自主调用
+#   开着的话，角色模型会被告知她能画画/发语音（取决于下面 draw/tts 开关），
+#   由模型自己在合适的时候嵌 [[画:…]] / [[画改:…]] / [[语音]] 标记，
+#   插件解析执行。关掉后只靠正则识别「画个xx」这类明确指令。
+# ------------------------------------------------------------
+tools:
+  enabled: true
+
+# ------------------------------------------------------------
+# 绘图
+# ------------------------------------------------------------
+draw:
+  enabled: true
+  bridgeUrl: http://127.0.0.1:7860
+  # LoRA 目录，留空 = 不扫也不给模型报可选项
+  loraDir: ''
+  knowledgeFile: config/draw-knowledge.md
+  saveDir: data/draw
+  timeoutMs: 300000
+  provider: ""          # 空 = 用 active
+  narrate: true         # 出图前后各说一句
+  lastPlanTtlMin: 30    # 「改图」的有效期，过了就当新画
+
+# ------------------------------------------------------------
+# 本地酒馆（SillyTavern）直连
+#   读它的角色卡 / 聊天记录 / 世界书 / 预设，不碰它的前端
+#   端口和 basicAuth 自动从酒馆自己的 config.yaml 读
+# ------------------------------------------------------------
+sillytavern:
+  enabled: false        # 有酒馆再打开
+  dir: ''               # 例：'E:\SillyTavern' 或 '/home/me/SillyTavern'
+  user: default-user
+  url: ""               # 空 = http://127.0.0.1:<酒馆的 port>
+  username: ""          # 空 = 用酒馆 config.yaml 里的 basicAuthUser
+  password: ""
+
+# ------------------------------------------------------------
+# 本地控制台（网页）：http://127.0.0.1:5199
+#   password 留空 → 首次启动自动生成，密码会打在启动日志里
+#   host 改 0.0.0.0 → 局域网里的手机也能开，日志会打印局域网地址
+# ------------------------------------------------------------
+webui:
+  enabled: true
+  host: 127.0.0.1
+  port: 5199
+  password: ""
+  sessionHours: 12
+
+# 把完整 prompt 打进日志（排查用，平时关掉）
+debug: false

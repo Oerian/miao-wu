@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f6f3ef">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>喵呜 · 控制台</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --bg:#f6f3ef; --card:#fffdfb; --line:#ece4da; --ink:#2c2a28;
+    --dim:#8a837b; --accent:#c1743f; --accent-soft:#fdefe2; --ok:#3d7a56; --bad:#c0442f; --warn:#b07d20;
+    --nav-h:60px;
+  }
+  html,body{height:100%}
+  body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--ink);
+    font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+
+  /* ---------- 顶栏 ---------- */
+  header{display:flex;align-items:center;gap:14px;padding:12px 22px;background:var(--card);
+    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;flex-wrap:wrap}
+  header h1{font-size:19px;letter-spacing:3px;flex:none}
+  .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);min-width:0}
+  .who select{max-width:180px;padding:4px 8px;font-size:12px}
+  nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+  nav button{border:0;background:transparent;padding:7px 14px;border-radius:8px;cursor:pointer;
+    font-size:13px;color:var(--dim);font-family:inherit;white-space:nowrap}
+  nav button:hover{background:#f6efe8;color:var(--ink)}
+  nav button.on{background:var(--accent-soft);color:#a3602f;font-weight:600}
+  header .out{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 10px;
+    font-size:12px;color:#5c554e;cursor:pointer;font-family:inherit;flex:none}
+
+  main{padding:20px 22px 60px;max-width:1080px;margin:0 auto}
+
+  /* ---------- 卡片 ---------- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:14px 16px;
+    box-shadow:0 1px 4px rgba(120,96,74,.04);min-width:0}
+  .card h3{font-size:12px;color:var(--accent);letter-spacing:1.5px;margin-bottom:9px;
+    display:flex;align-items:center;gap:6px}
+  .card h3 .go{margin-left:auto;font-size:11px;color:#c9b8a8;letter-spacing:0}
+  .card.link{cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s}
+  .card.link:hover{border-color:#d8a57c;transform:translateY(-1px);box-shadow:0 4px 14px rgba(120,96,74,.09)}
+  .card.link:hover h3 .go{color:var(--accent)}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:2px 0}
+  .kv .k{color:var(--dim);white-space:nowrap;flex:none}
+  .kv .v{min-width:0;text-align:right;word-break:break-all}
+  .kv.full{display:block}
+  .kv.full .k{display:block;margin-bottom:5px}
+  .kv.full input,.kv.full select,.kv.full textarea{width:100%}
+  .muted{color:var(--dim);font-size:12px}
+  .mono{font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:12.5px;color:var(--fg);
+    word-break:break-all;user-select:all;margin-top:2px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .big{font-size:20px;font-weight:600}
+
+  button.act{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;
+    cursor:pointer;font-size:12.5px;font-family:inherit;color:#5c554e}
+  button.act:hover{border-color:#d8a57c;color:#a3602f}
+  button.act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.act.primary:hover{background:#b0693c;color:#fff}
+  button.act.danger:hover{border-color:#e0b4ab;color:var(--bad)}
+  button.act:disabled{opacity:.5;cursor:default}
+
+  input[type=text],input[type=password],input[type=number],select,textarea{font-family:inherit;font-size:13px;
+    border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fbf8f5;outline:none;color:var(--ink);max-width:100%}
+  input:focus,select:focus,textarea:focus{border-color:#d8a57c;background:#fff}
+  textarea{width:100%;min-height:300px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.55}
+
+  h2.sec{font-size:14px;margin:22px 0 10px;padding-left:9px;border-left:3px solid #e0a173;letter-spacing:1px}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:9px 12px;min-width:0;flex-wrap:wrap}
+  .item .name{font-size:13px;flex:none;min-width:132px}
+  .item .desc{font-size:12px;color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .sp{flex:1}
+  .pill{font-size:11px;color:#8a6a4f;background:#f8f1e9;border-radius:20px;padding:1px 8px;flex:none}
+  .pill.ok{background:#eaf4ee;color:var(--ok)}
+  .pill.bad{background:#fbebe8;color:var(--bad)}
+  .pill.warn{background:#fdf3e0;color:var(--warn)}
+
+  pre.block{background:#fbf8f5;border:1px solid var(--line);border-radius:10px;padding:12px;
+    font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;
+    max-height:360px;overflow:auto;font-family:"Cascadia Mono",Consolas,"Microsoft YaHei",monospace}
+
+  /* 上下文进度条 */
+  .bar{height:7px;border-radius:99px;background:#efe7dd;overflow:hidden;margin:8px 0 4px}
+  .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#8fbf9f,#c1743f);transition:width .3s}
+  .bar i.hi{background:linear-gradient(90deg,#e0a173,#c0442f)}
+
+  .toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 20px);transform:translateX(-50%);
+    background:#2c2a28;color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;opacity:0;
+    transition:opacity .2s;pointer-events:none;z-index:99;max-width:86vw;text-align:center}
+  .toast.on{opacity:1}
+  .empty{color:var(--dim);font-size:12.5px;padding:10px 2px}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+  /* ---------- 手机 ---------- */
+  @media(max-width:820px){
+    header{padding:10px 14px 8px;gap:8px}
+    header h1{font-size:17px;letter-spacing:2px}
+    .who{margin-left:auto;order:2}
+    header .out{order:3}
+    nav{position:fixed;left:0;right:0;bottom:0;margin:0;justify-content:flex-start;flex-wrap:nowrap;
+      gap:2px;background:var(--card);border-top:1px solid var(--line);
+      padding:6px 8px calc(6px + env(safe-area-inset-bottom));overflow-x:auto;z-index:40;
+      -webkit-overflow-scrolling:touch;scrollbar-width:none}
+    nav::-webkit-scrollbar{display:none}
+    nav button{flex:0 0 auto;padding:8px 13px;font-size:12.5px;border-radius:8px}
+    main{padding:14px 13px calc(var(--nav-h) + 26px)}
+    .grid{grid-template-columns:1fr;gap:11px}
+    .split{grid-template-columns:1fr}
+    .item .name{min-width:0;flex:1 1 100%}
+    .item .desc{flex:1 1 100%;white-space:normal}
+    h2.sec{margin:18px 0 9px}
+  }
+  @media(min-width:821px){
+    nav{order:3}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>喵呜</h1>
+  <div class="who" id="who"></div>
+  <nav id="nav">
+    <button data-tab="home" class="on">概览</button>
+    <button data-tab="chars">角色</button>
+    <button data-tab="mem">记忆</button>
+    <button data-tab="clock">定时</button>
+    <button data-tab="st">酒馆</button>
+    <button data-tab="health">接入</button>
+    <button data-tab="cfg">配置</button>
+  </nav>
+  <button class="out" onclick="logout()">退出</button>
+</header>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= 基础 ================= */
+const $ = s => document.querySelector(s)
+const main = $('#main')
+let TAB = 'home'
+let STATE = null
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag)
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue
+    if (k === 'class') n.className = v
+    else if (k === 'text') n.textContent = v
+    else if (k === 'html') n.innerHTML = v
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v)
+    else n.setAttribute(k, v)
+  }
+  for (const c of kids.flat()) {
+    if (c == null || c === false) continue
+    n.append(typeof c === 'string' ? document.createTextNode(c) : c)
+  }
+  return n
+}
+function toast(msg) {
+  const t = $('#toast')
+  t.textContent = msg
+  t.classList.add('on')
+  clearTimeout(t._h)
+  t._h = setTimeout(() => t.classList.remove('on'), 2200)
+}
+async function api(path, opt) {
+  const r = await fetch(path, opt)
+  if (r.status === 401) { location.href = '/'; throw new Error('未登录') }
+  return r.json()
+}
+const post = (p, body) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+const del = p => api(p, { method: 'DELETE' })
+
+/* ================= 顶栏用户 ================= */
+async function loadWho() {
+  try {
+    const r = await api('/api/users')
+    const box = $('#who')
+    if (!r.ok || !r.list.length) { box.replaceChildren(); return }
+    if (r.list.length === 1) {
+      box.replaceChildren(el('span', {}, 'QQ ' + r.list[0].qq))
+      return
+    }
+    const sel = el('select', {
+      onchange: async e => {
+        const x = await post('/api/user', { qq: e.target.value })
+        if (x.ok) { toast('已切到 ' + x.current); switchTab(TAB) }
+        else toast(x.msg || '切换失败')
+      }
+    }, r.list.map(u => el('option', { value: u.qq, ...(u.qq === r.current ? { selected: 'selected' } : {}) },
+      u.qq + (u.master ? '（主人）' : ''))))
+    sel.value = r.current
+    box.replaceChildren(el('span', {}, '看谁的'), sel)
+  } catch {}
+}
+
+/* ================= 概览 ================= */
+async function tabHome() {
+  const s = await api('/api/state')
+  STATE = s
+  const pr = s.pressure
+  const pct = pr ? Math.min(100, Math.round(pr.usage.ratio * 100)) : 0
+  const lv = pr && (pr.usage.level === 'high' || pr.usage.level === 'over')
+
+  const link = (title, to, rows, extra) => el('div', { class: 'card link', onclick: () => switchTab(to) },
+    el('h3', {}, title, el('span', { class: 'go' }, '查看 ›')),
+    rows.map(([k, v]) => el('div', { class: 'kv' },
+      el('span', { class: 'k' }, k),
+      el('span', { class: 'v', text: String(v) }),
+    )),
+    extra || null,
+  )
+
+  main.replaceChildren(
+    el('div', { class: 'grid' },
+      link('后端', 'cfg', [
+        ['当前', s.backend ? s.backend.name : '未配置'],
+        ['模型', s.backend ? s.backend.model : '-'],
+        ['Key', s.backend ? s.backend.key : '-'],
+      ]),
+      link('出场', 'chars', [
+        ['角色', s.card ? s.card.name : '（无）'],
+        ['id', s.card ? s.card.id : '-'],
+        ['卡池', s.cards + ' 张'],
+      ]),
+      link('上下文', 'mem', [
+        ['占用', pr ? pr.text : '—'],
+        ['轮数', s.memory.turns + ' 轮'],
+        ['策略', s.compress.mode === 'auto' ? '自动压' : s.compress.mode === 'manual' ? '只手动' : '到线提醒'],
+      ],
+        el('div', {},
+          el('div', { class: 'bar' }, el('i', { class: lv ? 'hi' : '', style: 'width:' + pct + '%' })),
+          el('div', { class: 'muted' }, pr && Number.isFinite(pr.left)
+            ? (pr.left > 400 ? '还能聊很久 · 点这里看详情' : `还能聊约 ${pr.left} 轮 · 点这里看详情`)
+            : '点这里看详情'),
+        ),
+      ),
+      link('定时', 'clock', [
+        ['时刻', s.clock.now],
+        ['日期', s.clock.date],
+        ['节日', s.clock.festival || '—'],
+        ['挂着', s.clock.reminds + ' 个提醒'],
+      ]),
+      link('语音', 'cfg', [
+        ['状态', s.tts.enabled ? '开' : '关'],
+        ['引擎', s.tts.engine],
+        ['策略', s.tts.mode],
+      ]),
+      link('主动发言', 'cfg', [
+        ['状态', s.proactive.enabled ? '开' : '关'],
+        ['时段', s.proactive.hours.join(':00 - ') + ':00'],
+        ['今日', s.proactive.today + ' / ' + s.proactive.maxPerDay],
+      ]),
+      link('本地酒馆', 'st', [
+        ['直连', s.st.enabled ? '开' : '关'],
+        ['目录', (s.st.dir || '').split(/[\\/]/).filter(Boolean).pop() || '（未填）'],
+      ]),
+    ),
+    el('h2', { class: 'sec' }, '快捷'),
+    el('div', { class: 'row' },
+      btn('重新体检', () => switchTab('health')),
+      btn('压一次上下文', async () => {
+        if (!confirm('现在压缩？压完她的语气可能会淡一点。')) return
+        toast('压缩中…')
+        const r = await post('/api/compress', {})
+        toast(r.ok ? r.msg : (r.msg || '没压成'))
+        if (r.ok) tabHome()
+      }),
+      btn('加个提醒', () => switchTab('clock')),
+      btn('看记忆', () => switchTab('mem')),
+      btn('刷新', () => switchTab('home')),
+    ),
+  )
+}
+
+function btn(label, fn, cls = 'act') {
+  return el('button', { class: cls, onclick: fn }, label)
+}
+
+/* ================= 角色 ================= */
+async function tabChars() {
+  const [s, data] = await Promise.all([api('/api/state'), api('/api/chars')])
+  const list = el('div', { class: 'list' },
+    data.list.map(c => el('div', { class: 'item' },
+      el('span', { class: 'name' }, (c.id === (s.card && s.card.id) ? '▸ ' : '') + c.name),
+      el('span', { class: 'pill' }, c.format),
+      el('span', { class: 'desc' }, (c.tags || []).join(' · ')),
+      btn('看', () => showChar(c.id)),
+    )),
+  )
+  const imp = el('div', { class: 'row' },
+    el('input', { type: 'text', id: 'impPath', placeholder: '本机角色卡路径（md / json / png）', style: 'flex:1;min-width:200px' }),
+    btn('导入', async () => {
+      const p = $('#impPath').value.trim()
+      if (!p) return toast('先填路径')
+      const r = await post('/api/char/import', { path: p })
+      toast(r.msg || (r.ok ? '导入成功' : '失败'))
+      if (r.ok) tabChars()
+    }, 'act primary'),
+  )
+  main.replaceChildren(
+    el('h2', { class: 'sec' }, '角色卡（' + data.list.length + '）'),
+    list,
+    el('h2', { class: 'sec' }, '导入'),
+    imp,
+    el('div', { class: 'muted', style: 'margin-top:8px;word-break:break-all' }, '目录：' + data.dir),
+    el('h2', { class: 'sec' }, '详情'),
+    el('div', { id: 'charBox' }, el('div', { class: 'empty' }, '点上面的「看」')),
+  )
+}
+
+async function showChar(id) {
+  const r = await api('/api/char?id=' + encodeURIComponent(id))
+  const box = $('#charBox')
+  if (!r.ok) return (box.textContent = r.msg)
+  const c = r.card
+  const sec = (t, v) => v ? [el('h2', { class: 'sec' }, t), el('pre', { class: 'block', text: v })] : []
+  box.replaceChildren(
+    el('div', { class: 'row', style: 'margin-bottom:8px' },
+      el('b', {}, c.name), el('span', { class: 'pill' }, c.format || '?'),
+      c.inheritedFrom.length ? el('span', { class: 'muted' }, '继承：' + c.inheritedFrom.join(' → ')) : null,
+    ),
+    ...sec('你是谁', c.description),
+    ...sec('性格', c.personality),
+    ...sec('说话方式', c.styleExtra),
+    ...sec('关系', c.relExtra),
+    ...sec('小习惯', c.habitExtra),
+    ...sec('关于画图', c.drawExtra),
+    ...sec('场景', c.scenario),
+    ...sec('示例对话', c.mesExample),
+    ...sec('开场白', [c.firstMes, ...(c.greetingPool || [])].filter(Boolean).join('\n---\n')),
+  )
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/* ================= 记忆 ================= */
+async function tabMem(profile) {
+  const r = await api('/api/memory' + (profile ? '?profile=' + encodeURIComponent(profile) : ''))
+  if (!r.ok) return main.replaceChildren(el('div', { class: 'empty' }, r.msg || '读取失败'))
+
+  const c = await api('/api/context').catch(() => null)
+  const pct = c ? Math.min(100, Math.round(c.usage.ratio * 100)) : 0
+  const hi = c && (c.usage.level === 'high' || c.usage.level === 'over')
+
+  const sel = el('select', {
+    onchange: e => tabMem(e.target.value),
+  }, r.profiles.map(p => el('option', { value: p, ...(p === r.profile ? { selected: 'selected' } : {}) }, p)))
+
+  const facts = el('div', { class: 'list' },
+    r.facts.length
+      ? r.facts.map(f => el('div', { class: 'item' },
+        el('span', { class: 'name' }, f.key),
+        el('span', { class: 'desc' }, String(f.value)),
+      ))
+      : el('div', { class: 'empty' }, '还没有关于他的资料'),
+  )
+  const hidden = r.hidden.length
+    ? el('pre', { class: 'block', text: r.hidden.map(h => h.key + '：' + h.value).join('\n') })
+    : el('div', { class: 'empty' }, '没有临时状态（场景 / 我是谁 / 同场）')
+
+  const ctx = el('pre', { class: 'block', text: r.ctx.map(m => (m.role === 'user' ? '主人' : '她') + '：' + m.content).join('\n') || '（空）' })
+
+  main.replaceChildren(
+    el('div', { class: 'row', style: 'margin-bottom:4px' },
+      el('span', { class: 'muted' }, '存档'), sel,
+      btn('清空对话', async () => {
+        if (!confirm('清掉这个存档的上下文 / 摘要 / 事件？')) return
+        await post('/api/memory/forget', { keepFacts: false })
+        toast('已清空'); tabMem(r.profile)
+      }, 'act danger'),
+      btn('只清对话，保留资料', async () => {
+        await post('/api/memory/forget', { keepFacts: true })
+        toast('已清对话'); tabMem(r.profile)
+      }),
+    ),
+
+    c ? el('div', { class: 'card', style: 'margin-top:12px' },
+      el('h3', {}, '上下文占用', el('span', { class: 'go' }, c.usage.limit + ' token 窗口')),
+      el('div', { class: 'bar' }, el('i', { class: hi ? 'hi' : '', style: 'width:' + pct + '%' })),
+      el('div', { class: 'row', style: 'justify-content:space-between' },
+        el('span', { class: 'muted' }, c.text + ' · ' + c.turns + ' 轮'),
+        el('span', { class: 'muted' }, c.left !== Infinity && Number.isFinite(c.left)
+          ? (c.left > 400 ? '还能聊很久' : '还能聊约 ' + c.left + ' 轮')
+          : ''),
+      ),
+      el('div', { class: 'row', style: 'margin-top:10px' },
+        btn('压缩一次', async () => {
+          if (!confirm('压掉旧的轮次换成摘要？压完语气可能会淡一点。')) return
+          toast('压缩中…')
+          const x = await post('/api/compress', {})
+          toast(x.ok ? x.msg : (x.msg || '失败'))
+          if (x.ok) tabMem(r.profile)
+        }, 'act primary'),
+        el('span', { class: 'muted' }, '策略：' + (c.mode === 'auto' ? '自动压' : c.mode === 'manual' ? '只手动' : '到线提醒（不自动压）')),
+      ),
+    ) : null,
+
+    el('h2', { class: 'sec' }, '摘要'),
+    el('pre', { class: 'block', text: r.summary.text || '（还没压缩过）' }),
+    el('div', { class: 'split' },
+      el('div', {}, el('h2', { class: 'sec' }, '关于他'), facts),
+      el('div', {}, el('h2', { class: 'sec' }, '临时状态'), hidden),
+    ),
+    el('h2', { class: 'sec' }, '最近事件（' + r.episodes.length + '）'),
+    el('pre', { class: 'block', text: r.episodes.map(e => '· ' + e.text).join('\n') || '（无）' }),
+    el('h2', { class: 'sec' }, '最近对话'),
+    ctx,
+  )
+}
+
+/* ================= 定时 ================= */
+async function tabClock() {
+  const r = await api('/api/clock')
+  const when = el('input', { type: 'text', id: 'cw', placeholder: '30分钟 / 明天8点 / 20:30', style: 'flex:1;min-width:170px' })
+  const what = el('input', { type: 'text', id: 'ct', placeholder: '提醒什么', style: 'flex:1;min-width:150px' })
+
+  const list = el('div', { class: 'list' },
+    r.list.length
+      ? r.list.map(it => el('div', { class: 'item' },
+        el('span', { class: 'name', style: 'color:' + (it.at < Date.now() ? 'var(--dim)' : 'inherit') }, it.when),
+        el('span', { class: 'desc' }, it.text),
+        it.repeat ? el('span', { class: 'pill' }, '每天') : null,
+        it.done ? el('span', { class: 'pill' }, '已过期') : null,
+        btn('取消', async () => {
+          const x = await del('/api/clock?id=' + encodeURIComponent(it.id))
+          toast(x.msg || (x.ok ? '已取消' : '失败'))
+          if (x.ok) tabClock()
+        }, 'act danger'),
+      ))
+      : el('div', { class: 'empty' }, '还没有提醒。加一个试试 —— 到点她会主动来找你说话。'),
+  )
+
+  main.replaceChildren(
+    el('div', { class: 'card' },
+      el('h3', {}, '现在'),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '时间'), el('span', { class: 'v' }, r.now)),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '节日'), el('span', { class: 'v' }, r.festival || '—')),
+    ),
+    el('h2', { class: 'sec' }, '加一个'),
+    el('div', { class: 'row' }, when, what,
+      btn('添加', async () => {
+        const w = when.value.trim(), t = what.value.trim()
+        if (!w) return toast('先说什么时候')
+        if (!t) return toast('再说提醒什么')
+        const x = await post('/api/clock', { when: w, text: t })
+        toast(x.msg || (x.ok ? '加好了' : '时间没认出来'))
+        if (x.ok) tabClock()
+      }, 'act primary'),
+    ),
+    el('div', { class: 'muted', style: 'margin-top:8px' },
+      '支持：30分钟 / 2小时 / 20:30 / 明天8点 / 每天7:30 / 半小时后'),
+    el('h2', { class: 'sec' }, '挂着的（' + r.list.filter(x => !x.done).length + '）'),
+    list,
+  )
+}
+
+/* ================= 酒馆 ================= */
+async function tabSt() {
+  const r = await api('/api/st')
+  const s = r.status
+  const head = s.ok
+    ? el('div', { class: 'card' },
+      el('h3', {}, '本地酒馆'),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '服务'), el('span', { class: 'v ' + (s.httpOk ? 'ok' : 'bad') }, s.httpOk ? '在线 ' + s.version : 'HTTP 未连上')),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '地址'), el('span', { class: 'v' }, s.url)),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '目录'), el('span', { class: 'v' }, s.root)),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '内容'), el('span', { class: 'v' }, `卡 ${s.chars} · 聊天 ${s.chatDirs} · 世界书 ${s.worlds} · 预设 ${s.presets}`)),
+    )
+    : el('div', { class: 'card' }, el('h3', {}, '本地酒馆'), el('div', { class: 'empty' }, s.msg))
+
+  const charList = el('div', { class: 'list' }, r.chars.map(c => el('div', { class: 'item' },
+    el('span', { class: 'name' }, c.name),
+    el('span', { class: 'pill' }, c.format),
+    el('span', { class: 'desc' }, c.desc || ''),
+    btn('导入', async () => {
+      const x = await post('/api/st/import', { name: c.id })
+      toast(x.msg || (x.ok ? '已导入' : '失败'))
+    }, 'act primary'),
+    btn('看聊天', async () => {
+      const d = await api('/api/st/chats?name=' + encodeURIComponent(c.id))
+      const box = $('#stChats')
+      box.replaceChildren(
+        el('pre', { class: 'block', text: d.list.map(x => x.name + '（' + x.turns + ' 轮 · ' + new Date(x.mtime).toLocaleString() + '）').join('\n') || '没有聊天记录' }),
+        el('div', { class: 'muted' }, '接进度在 QQ 里发：#喵呜 酒馆 接着 ' + c.name),
+      )
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }),
+  )))
+
+  const worldList = el('div', { class: 'list' }, r.worlds.map(w => el('div', { class: 'item' },
+    el('span', { class: 'name' }, w.name),
+    el('span', { class: 'pill' }, w.entries + ' 条'),
+    el('span', { class: 'desc' }, ''),
+    btn('导入', async () => {
+      const x = await post('/api/st/world', { name: w.id })
+      toast(x.msg || (x.ok ? '已导入' : '失败'))
+    }, 'act primary'),
+  )))
+
+  const presetList = el('div', { class: 'list' }, r.presets.map(p => el('div', { class: 'item' },
+    el('span', { class: 'name' }, p.name),
+    el('span', { class: 'pill' }, p.kind),
+    el('span', { class: 'desc' }, ''),
+    btn('看', async () => {
+      const x = await api('/api/st/preset?name=' + encodeURIComponent(p.id))
+      $('#stPreset').replaceChildren(
+        el('pre', { class: 'block', text: x.ok ? [x.jailbreak ? '—— jailbreak ——\n' + x.jailbreak : '', x.main ? '—— main ——\n' + x.main : ''].filter(Boolean).join('\n\n') : x.msg }),
+      )
+    }),
+  )))
+
+  main.replaceChildren(
+    head,
+    el('div', { class: 'muted', style: 'margin-top:10px' }, '导入的角色卡 / 世界书会复制进喵呜自己的目录，不动酒馆原文件。'),
+    el('h2', { class: 'sec' }, '角色卡（' + r.chars.length + '）'),
+    charList,
+    el('div', { id: 'stChats' }),
+    el('h2', { class: 'sec' }, '世界书（' + r.worlds.length + '）'),
+    worldList,
+    el('h2', { class: 'sec' }, '预设（OpenAI Settings）'),
+    presetList,
+    el('div', { id: 'stPreset' }),
+  )
+}
+
+/* ================= 接入 / 体检 ================= */
+async function tabHealth() {
+  main.replaceChildren(el('div', { class: 'empty' }, '正在挨个探…'))
+  const r = await api('/api/probe')
+  const lvText = { ok: '正常', warn: '要注意', error: '异常', info: '可选' }
+  const lvCls = { ok: 'ok', warn: 'warn', error: 'bad', info: '' }
+
+  const rows = el('div', { class: 'list' }, r.rows.map(it => el('div', { class: 'item' },
+    el('span', { class: 'name' }, it.name),
+    el('span', { class: 'pill ' + (lvCls[it.level] || '') }, lvText[it.level] || it.level),
+    el('span', { class: 'desc', title: it.detail }, it.detail),
+    it.hint ? el('div', { class: 'desc', style: 'flex:1 1 100%;white-space:normal;color:#9a7a5c' }, '→ ' + it.hint) : null,
+  )))
+
+  const bad = r.rows.filter(x => !x.ok && x.level !== 'info')
+
+  main.replaceChildren(
+    el('div', { class: 'card' },
+      el('h3', {}, '体检结果'),
+      el('div', { class: 'kv' },
+        el('span', { class: 'k' }, '总体'),
+        el('span', { class: 'v ' + (bad.length ? 'warn' : 'ok') },
+          bad.length ? `${bad.length} 项异常：${bad.map(b => b.name).join('、')}` : '全部正常'),
+      ),
+      el('div', { class: 'row', style: 'margin-top:10px' },
+        btn('重探', async () => {
+          await api('/api/probe?fresh=1')
+          tabHealth()
+        }, 'act primary'),
+        btn('自动修', async () => {
+          const x = await post('/api/probe/fix', {})
+          if (!x.ok) return toast(x.msg || '没有能自动修的')
+          toast('修好了 ' + x.notes.length + ' 项')
+          tabHealth()
+        }),
+      ),
+    ),
+    el('div', { class: 'muted', style: 'margin-top:10px' },
+      '「自动修」只会改端口/目录这类能确定的事；密码、路径要你自己填。改完热加载生效。'),
+    el('h2', { class: 'sec' }, '逐项'),
+    rows,
+    el('h2', { class: 'sec' }, '萌新上手顺序'),
+    el('pre', { class: 'block', text:
+      '1. 对话后端   —— 没有它，猫不会说话。config.yaml 的 providers + active\n' +
+      '2. 角色卡     —— 没有它，猫不知道自己是谁。丢一张 .md / .png 进 config/characters\n' +
+      '3. 记忆       —— 装好就自动有了，不用配\n' +
+      '4. 绘图（可选）—— 起 ComfyUI 或 comfy-bridge，draw.bridgeUrl 指过去\n' +
+      '5. 语音（可选）—— 起 GPT-SoVITS 的 api_v2，tts.refAudio 填一段 5~10 秒人声\n' +
+      '6. 酒馆（可选）—— sillytavern.dir 填安装目录，能直接吃它的卡和存档\n\n' +
+      '卡住了就看这一页的「→」提示，每条都写了下一步该干嘛。' }),
+  )
+}
+
+/* ================= 配置 ================= */
+let cfgCache = null
+async function tabCfg() {
+  const r = await api('/api/config')
+  cfgCache = r.config
+  const c = r.config
+
+  const sel = el('select', { id: 'cActive' }, Object.keys(c.providers).map(n =>
+    el('option', { value: n }, n + ' · ' + (c.providers[n].model || '?'))))
+  sel.value = c.active
+
+  const mk = (label, node) => el('div', { class: 'kv' }, el('span', { class: 'k' }, label), el('span', { class: 'v' }, node))
+  const full = (label, node) => el('div', { class: 'kv full' }, el('span', { class: 'k' }, label), node)
+  const chk = (label, id, on) => mk(label, el('input', { type: 'checkbox', id, ...(on ? { checked: 'checked' } : {}) }))
+  const num = (label, id, v, w = 92) => mk(label, el('input', { type: 'number', id, value: String(v), style: 'width:' + w + 'px;text-align:right' }))
+  const txt = (label, id, v, ph = '') => full(label, el('input', { type: 'text', id, value: String(v ?? ''), placeholder: ph }))
+  const pick = (label, id, v, opts) => mk(label, el('select', { id }, opts.map(([val, text]) =>
+    el('option', { value: val, ...(String(val) === String(v) ? { selected: 'selected' } : {}) }, text))))
+
+  // 手机能不能开，全看这一段 —— 把该输的地址直接摆出来
+  const lanHint = () => {
+    const w = c.webui || {}
+    const open = w.host === '0.0.0.0'
+    const port = w.port || 5199
+    const ips = w.lan || []
+    const lines = open
+      ? (ips.length ? ips.map(ip => `http://${ip}:${port}`) : ['没探到局域网地址，先确认电脑连着 Wi-Fi / 网线'])
+      : ['现在只有本机能开（127.0.0.1:5199）。手机要连，把上面切成「局域网都能开」再保存']
+    return el('div', { class: 'kv full' },
+      el('span', { class: 'k' }, open ? '手机打开' : '当前状态'),
+      el('div', {},
+        ...lines.map(s => el('div', { class: 'mono' }, s)),
+        open ? el('div', { class: 'muted', style: 'margin-top:4px' },
+          '手机和电脑连同一个 Wi-Fi；密码就是 webui.password。对局域网开放时，建议把它换长一点') : null))
+  }
+
+  main.replaceChildren(
+    el('h2', { class: 'sec' }, '常用'),
+    el('div', { class: 'card' },
+      mk('当前后端', sel),
+      chk('插件启用', 'cEnabled', c.enabled),
+      num('单条回复字数上限', 'cMaxChars', c.chat?.maxReplyChars ?? 80),
+      pick('上下文压缩策略', 'cMode', c.compress?.mode || 'remind', [['remind', '到线提醒（推荐）'], ['auto', '自动压'], ['manual', '只手动']]),
+      num('压缩触发轮数', 'cTrigger', c.compress?.triggerTurns ?? 16),
+    ),
+
+    el('h2', { class: 'sec' }, '谁在用'),
+    el('div', { class: 'card' },
+      chk('口令开门', 'cUnlock', c.scope?.unlockEnabled !== false),
+      txt('口令', 'cKey', c.scope?.unlockKey || '喵呜', '别人私聊发这个词就能进来'),
+      chk('有人进来时通知我', 'cNotify', c.scope?.unlockNotify !== false),
+      full('可用者 QQ（一行一个，主人不用写）',
+        el('textarea', { id: 'cWl', spellcheck: 'false',
+          style: 'min-height:88px;font-family:inherit;font-size:13px',
+          placeholder: '123456789\n987654321' },
+          (c.scope?.whitelist || []).join('\n'))),
+    ),
+
+    el('h2', { class: 'sec' }, '绘图 / 语音'),
+    el('div', { class: 'card' },
+      chk('绘图', 'cDraw', c.draw?.enabled !== false),
+      txt('绘图服务地址', 'cDrawUrl', c.draw?.bridgeUrl || 'http://127.0.0.1:7860', 'http://127.0.0.1:7860'),
+      chk('语音', 'cTts', c.tts?.enabled === true),
+      pick('语音引擎', 'cTtsEngine', c.tts?.engine || 'gptsovits', [['gptsovits', 'GPT-SoVITS'], ['openai', 'OpenAI 兼容 /v1/audio/speech']]),
+      txt('语音服务地址', 'cTtsUrl', c.tts?.url || 'http://127.0.0.1:9880'),
+      txt('参考音频（绝对路径）', 'cTtsRef', c.tts?.refAudio || '', 'E:\\voice\\ref.wav'),
+      txt('参考音频里说的那句', 'cTtsRefText', c.tts?.refText || '', '必须一字不差'),
+      pick('发送策略', 'cTtsMode', c.tts?.mode || 'sometimes', [['sometimes', '偶尔发'], ['all', '每条都发'], ['off', '只发文字']]),
+      num('偶尔发的概率 %', 'cTtsChance', Math.round((c.tts?.chance ?? 0.25) * 100)),
+    ),
+
+    el('h2', { class: 'sec' }, '时钟 / 主动发言'),
+    el('div', { class: 'card' },
+      chk('把真实时间告诉她', 'cClock', c.clock?.enabled !== false),
+      chk('允许定时提醒', 'cRemind', c.clock?.reminds !== false),
+      chk('主动发言', 'cPro', c.proactive?.enabled === true),
+      pick('主动发言语气', 'cProStyle', c.proactive?.style || 'auto',
+        [['auto', '她自己拿主意'], ['life', '说自己正在干嘛'], ['ask', '问你的事'], ['miss', '说想你'], ['tease', '吐槽你']]),
+      num('每天最多几次', 'cProMax', c.proactive?.maxPerDay ?? 3),
+      num('两次间隔至少（分钟）', 'cProMin', c.proactive?.minIdleMin ?? 120),
+      chk('深夜不发（23-7 点）', 'cProNight', c.proactive?.nightQuiet !== false),
+      full('话题池（一行一个，可空）',
+        el('textarea', { id: 'cProTopics', style: 'min-height:96px;font-family:inherit' },
+          (c.proactive?.topics || []).join('\n'))),
+    ),
+
+    el('h2', { class: 'sec' }, '酒馆 / 控制台'),
+    el('div', { class: 'card' },
+      chk('酒馆直连', 'cSt', c.sillytavern?.enabled !== false),
+      txt('酒馆目录', 'cStDir', c.sillytavern?.dir || ''),
+      pick('控制台监听', 'cHost', c.webui?.host || '127.0.0.1',
+        [['127.0.0.1', '只有本机能开'], ['0.0.0.0', '局域网都能开（手机可用）']]),
+      num('控制台端口', 'cPort', c.webui?.port || 5199),
+      chk('出场时自动开场白', 'cOpening', c.tavern?.autoOpening !== false),
+      lanHint(),
+    ),
+
+    el('div', { class: 'row', style: 'margin-top:12px' },
+      btn('保存', saveCommon, 'act primary'),
+      btn('重新读取', () => tabCfg()),
+      el('span', { class: 'muted' }, '监听地址 / 端口改完立刻生效，不用重启'),
+    ),
+
+    el('h2', { class: 'sec' }, '高级（整段 JSON，小心）'),
+    el('textarea', { id: 'cJson', spellcheck: 'false' }),
+    el('div', { class: 'row', style: 'margin-top:10px' },
+      btn('保存整段', saveJson, 'act primary'),
+      el('span', { class: 'muted' }, '后端 apiKey 与 webui.password 不在这里改，直接编辑 config.yaml'),
+    ),
+  )
+  $('#cJson').value = JSON.stringify(c, null, 2)
+}
+
+async function saveCommon() {
+  const topics = $('#cProTopics').value.split('\n').map(s => s.trim()).filter(Boolean)
+  const patch = {
+    enabled: $('#cEnabled').checked,
+    active: $('#cActive').value,
+    chat: { ...cfgCache.chat, maxReplyChars: Number($('#cMaxChars').value) || 80 },
+    compress: { ...cfgCache.compress, enabled: $('#cMode').value !== 'manual', mode: $('#cMode').value, triggerTurns: Number($('#cTrigger').value) || 16 },
+    scope: {
+      ...cfgCache.scope,
+      unlockEnabled: $('#cUnlock').checked,
+      unlockKey: ($('#cKey').value.trim() || '喵呜').slice(0, 12),
+      unlockNotify: $('#cNotify').checked,
+      whitelist: $('#cWl').value.split('\n').map(s => s.trim()).filter(s => /^\d{5,12}$/.test(s)),
+    },
+    draw: { ...cfgCache.draw, enabled: $('#cDraw').checked, bridgeUrl: $('#cDrawUrl').value.trim() },
+    tts: {
+      ...cfgCache.tts,
+      enabled: $('#cTts').checked,
+      engine: $('#cTtsEngine').value,
+      url: $('#cTtsUrl').value.trim(),
+      refAudio: $('#cTtsRef').value.trim(),
+      refText: $('#cTtsRefText').value.trim(),
+      mode: $('#cTtsMode').value,
+      chance: Math.max(0, Math.min(100, Number($('#cTtsChance').value) || 0)) / 100,
+    },
+    clock: { ...cfgCache.clock, enabled: $('#cClock').checked, reminds: $('#cRemind').checked },
+    proactive: {
+      ...cfgCache.proactive,
+      enabled: $('#cPro').checked,
+      style: $('#cProStyle').value,
+      maxPerDay: Number($('#cProMax').value) || 3,
+      minIdleMin: Number($('#cProMin').value) || 120,
+      nightQuiet: $('#cProNight').checked,
+      topics,
+    },
+    tavern: { ...cfgCache.tavern, autoOpening: $('#cOpening').checked },
+    sillytavern: { ...cfgCache.sillytavern, enabled: $('#cSt').checked, dir: $('#cStDir').value.trim() },
+    webui: { ...cfgCache.webui, host: $('#cHost').value, port: Number($('#cPort').value) || 5199 },
+  }
+  const r = await post('/api/config', { patch })
+  if (!r.ok) return toast(r.msg || '保存失败')
+  const b = r.webui
+  if (b && b.ok === false) toast('已保存，但控制台没切过去：' + b.msg)
+  else if (b && b.changed) {
+    const url = b.host === '0.0.0.0'
+      ? (b.lan && b.lan.length ? `http://${b.lan[0]}:${b.port}` : `端口 ${b.port}`)
+      : `http://127.0.0.1:${b.port}`
+    toast('已切换，手机开 ' + url)
+  } else toast('已保存')
+  if (r.ok) tabCfg()
+}
+
+async function saveJson() {
+  let obj
+  try { obj = JSON.parse($('#cJson').value) } catch (e) { return toast('JSON 格式不对：' + e.message) }
+  const r = await post('/api/config', { patch: obj })
+  toast(r.ok ? '已保存' : (r.msg || '失败'))
+  if (r.ok) tabCfg()
+}
+
+/* ================= 路由 ================= */
+const TABS = { home: tabHome, chars: tabChars, mem: () => tabMem(), clock: tabClock, st: tabSt, health: tabHealth, cfg: tabCfg }
+
+function switchTab(t) {
+  TAB = t
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t))
+  const on = document.querySelector('nav button.on')
+  if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' })
+  main.replaceChildren(el('div', { class: 'empty' }, '加载中…'))
+  window.scrollTo(0, 0)
+  const fn = TABS[t] || tabHome
+  Promise.resolve(fn()).catch(e => main.replaceChildren(el('div', { class: 'empty' }, '出错了：' + e.message)))
+}
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)))
+async function logout() {
+  await api('/api/logout')
+  location.href = '/'
+}
+
+/* 支持 #mem 这种直链，方便收藏 */
+loadWho().finally(() => {
+  const h = (location.hash || '').replace('#', '')
+  switchTab(TABS[h] ? h : 'home')
+})
+</script>
+</body>
+</html>
