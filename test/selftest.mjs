@@ -453,6 +453,48 @@ if (WITH_LLM) {
   check("安全：超长正则规则被跳过", long === "aaaa")
 }
 
+/* ============================================================ 12.8 表情包 */
+
+{
+  const meme = await import("../lib/meme.js")
+  const conf2 = { ...conf, memory: { ...(conf.memory || {}), dataDir: "data/test-memes" } }
+
+  // 收藏 + sha1 去重
+  const fakePng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  const r1 = meme.addMeme(conf2, fakePng, { caption: "一只猫翻白眼", emotion: "无语", tags: ["猫", "翻白眼"], from: "测试" }, "image/png")
+  check("表情包：收藏成功", r1.ok === true)
+  const r2 = meme.addMeme(conf2, fakePng, { caption: "重复图" }, "image/png")
+  check("表情包：sha1 去重", r2.ok === false && r2.dup === true)
+
+  // 按描述找
+  meme.addMeme(conf2, Buffer.concat([fakePng, Buffer.from([1])]), { caption: "震惊猫猫头", emotion: "震惊", tags: ["震惊"] }, "image/png")
+  const hit = meme.findMeme(conf2, "震惊")
+  check("表情包：按描述命中", hit?.emotion === "震惊")
+  const rand = meme.findMeme(conf2, "完全不相干的查询词组")
+  check("表情包：不命中也兜底随机", !!rand)
+
+  // 列表 / 删除
+  check("表情包：列表有数", meme.listMemes(conf2).length === 2)
+  check("表情包：删除", meme.removeMeme(conf2, meme.listMemes(conf2)[0].id) && meme.listMemes(conf2).length === 1)
+
+  // 上限挤兑
+  const conf3 = { ...conf2, meme: { maxCount: 2 } }
+  meme.addMeme(conf3, Buffer.concat([fakePng, Buffer.from([2])]), { caption: "第三张" }, "image/png")
+  meme.addMeme(conf3, Buffer.concat([fakePng, Buffer.from([3])]), { caption: "第四张" }, "image/png")
+  const afterMax = meme.listMemes(conf3)
+  check("表情包：超上限挤掉最旧", afterMax.length === 2 && afterMax[afterMax.length - 1].caption === "第四张")
+
+  // 配字 HTML：转义 + 分行
+  const html = meme.memeHtml("file:///x.png", "<script>alert(1)</script>", "底部")
+  check("表情包：配字 HTML 转义", html.includes("&lt;script&gt;") && !html.includes("<script>"))
+  check("表情包：上下两行都有", html.includes('<div class="cap top">') && html.includes('<div class="cap bottom">'))
+  const one = meme.memeHtml("x.png", "只有顶上一行", "")
+  check("表情包：空行不渲染", one.includes('<div class="cap top">') && !one.includes('<div class="cap bottom">'))
+
+  // 清理测试目录
+  try { fs.rmSync("data/test-memes", { recursive: true, force: true }) } catch { }
+}
+
 /* ============================================================ 收尾 */
 
 await mem.forgetAll(conf, TEST_QQ)

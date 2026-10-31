@@ -43,6 +43,7 @@ import { sendHuman, readDelay } from "./lib/reply.js"
 import { detectDrawIntent, planDraw, planRefine, renderImage, bridgeAlive, listLoras } from "./lib/draw.js"
 import { parseToolCalls, runToolCalls } from "./lib/tools.js"
 import * as tavernext from "./lib/tavernext.js"
+import * as meme from "./lib/meme.js"
 import { sleep, rand, plainText, cut, charLen, ago, pick } from "./lib/util.js"
 
 const TAG = "[喵呜]"
@@ -350,12 +351,12 @@ async function respond(conf, e, userText, opts = {}) {
   await mem.touchLast(conf, qq)
   await mem.resetNoReply(conf, qq)
 
-  // 工具执行：画画（语音在发送阶段已处理）。handleDraw 自己会记录上下文。
-  const drawCalls = toolCalls.calls.filter(c => c.name === "draw" || c.name === "drawRefine")
-  if (drawCalls.length && opts.drawOnce) {
+  // 工具执行：画画 / 表情包（语音在发送阶段已处理）
+  const actionCalls = toolCalls.calls.filter(c => c.name !== "voice")
+  if (actionCalls.length && opts.drawOnce) {
     const results = await runToolCalls(
       { e, conf, qq, drawOnce: (subject, dopts) => opts.drawOnce(subject, dopts) },
-      drawCalls,
+      actionCalls,
     )
     if (results.length) log.mark(`${TAG} 工具执行：${results.join(" ")}`)
   }
@@ -567,6 +568,15 @@ export class MiaoWu extends plugin {
       if (picked) return this.handleChat(e, picked, conf) && "return"
     }
 
+    /* ---------------- 图片 / 表情包 ---------------- */
+    {
+      const imgs = (e.message || []).filter(m => m.type === "image" && (m.url || m.file))
+      if (imgs.length && conf.meme?.enabled !== false) {
+        this.handleMemeImages(e, imgs, conf, body).catch(err => log.error(`${TAG} 表情包识别：${err.stack || err}`))
+        return "return"
+      }
+    }
+
     /* ---------------- 绘图分流 ---------------- */
     if (conf.draw?.enabled) {
       const qq = String(e.user_id)
@@ -632,6 +642,58 @@ export class MiaoWu extends plugin {
       slot.busy = false
       locks.delete(qq)
     }
+  }
+
+  /* ---------------------------------------------------------- 图片/表情包 */
+
+  /**
+   * 他发图了：视觉识别（云端优先，本地兜底）→ 表情包自动收藏 →
+   * 把识别结果合成文字进聊天，让她自然接话。
+   */
+  async handleMemeImages(e, imgs, conf, text) {
+    const qq = String(e.user_id)
+    const prov = provFor(conf)
+    const notes = []
+
+    for (const seg of imgs.slice(0, 2)) {
+      try {
+        const url = seg.url || seg.file
+        if (!/^https?:/i.test(url)) continue
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 30000)
+        let r
+        try {
+          r = await fetch(url, { signal: ctrl.signal })
+        } finally {
+          clearTimeout(timer)
+        }
+        if (!r.ok) continue
+        const buf = Buffer.from(await r.arrayBuffer())
+        if (buf.length < 1000 || buf.length > 12 * 1024 * 1024) continue
+        const mime = r.headers.get("content-type") || "image/png"
+
+        const v = await meme.visionDescribe(conf, buf, mime, prov)
+        if (!v) {
+          notes.push("[他发了一张图，没看出来是什么]")
+          continue
+        }
+        let collected = ""
+        if (v.type === "表情包" && conf.meme?.autoCollect !== false) {
+          const r2 = meme.addMeme(conf, buf, { ...v, from: nickOf(e) }, mime)
+          if (r2.ok) collected = "，这张已经悄悄收进我的表情包库了"
+        }
+        const kind = v.type === "表情包" ? "表情包" : "图"
+        notes.push(`[他发了一张${kind}：${v.caption}（情绪：${v.emotion || "不好说"}）${collected}]`)
+      } catch (err) {
+        log.warn(`${TAG} 图片处理失败：${err.message}`)
+      }
+    }
+
+    if (!notes.length) {
+      return text ? this.handleChat(e, text, conf) : undefined
+    }
+    const say = [text, ...notes].filter(Boolean).join("\n")
+    return this.handleChat(e, say, conf)
   }
 
   /* ---------------------------------------------------------- 绘图 */
@@ -927,6 +989,38 @@ export class MiaoWu extends plugin {
         const img = await tavernext.renderStatebar(html)
         if (!img) return e.reply("状态栏渲染失败（渲染器没起？文字状态发「#喵呜 状态」）")
         return e.reply(img)
+      }
+
+      case "表情包": {
+        if (!arg) {
+          const list = meme.listMemes(conf)
+          if (!list.length) {
+            return e.reply("表情包库还是空的。\n多发点斗图给我，我看着顺眼的会自己收。\n做一张：#喵呜 表情包 做 顶部文字|底部文字")
+          }
+          const head = `库里 ${list.length} 张（最近 15 张）：`
+          const lines = list.slice(-15).map((m, i) => `${list.length - Math.min(15, list.length) + i + 1}. [${m.emotion || "?"}] ${m.caption || m.id}`)
+          return e.reply(
+            [head, ...lines, "", "做一张：#喵呜 表情包 做 顶部文字|底部文字", e.isMaster ? "删：#喵呜 表情包 删 <编号>" : ""].filter(Boolean).join("\n"),
+          )
+        }
+        const m = arg.match(/^(删|做)\s*([\s\S]+)$/)
+        if (!m) return e.reply("用法：#喵呜 表情包 做 顶部|底部 · #喵呜 表情包 删 <编号>")
+        const [, op, rest] = m
+        if (op === "做") {
+          const [top, bottom] = rest.split(/[|｜]/).map(s => s.trim())
+          const base = meme.latestBaseImage(conf)
+          if (!base) return e.reply("还没有底图 —— 先让我画一张，或者发张图给我。")
+          const img = await meme.renderMeme(`file:///${base.replace(/\\/g, "/")}`, top, bottom)
+          if (!img) return e.reply("配字失败了…（渲染器没起？）")
+          return e.reply(img)
+        }
+        if (!e.isMaster) return e.reply("删图只有主人能来。")
+        const n = Number(rest.trim())
+        const list = meme.listMemes(conf)
+        const target = list[n - 1] || list.find(x => x.id.startsWith(rest.trim()))
+        if (!target) return e.reply(`没找到第 ${rest.trim()} 张。列表序号见 #喵呜 表情包`)
+        meme.removeMeme(conf, target.id)
+        return e.reply(`删掉了：${target.caption || target.id}`)
       }
 
       case "可用者":
