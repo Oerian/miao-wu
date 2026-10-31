@@ -284,8 +284,11 @@ async function respond(conf, e, userText, opts = {}) {
     out = parsed.text
     toolCalls.calls = parsed.calls
     if (!out && parsed.calls.length) {
-      // 只发了标记没说话：给一句自然的过渡，别让用户收到空气
-      out = parsed.calls.some(c => c.name === "draw" || c.name === "drawRefine") ? "等我一下——" : "…"
+      // 纯表情包回复（斗图）允许不说话；画画才需要一句过渡
+      const imgOnly = parsed.calls.every(c => c.name === "sticker" || c.name === "meme")
+      if (!imgOnly) {
+        out = parsed.calls.some(c => c.name === "draw" || c.name === "drawRefine") ? "等我一下——" : "…"
+      }
     }
   }
   if (!out) return
@@ -309,20 +312,22 @@ async function respond(conf, e, userText, opts = {}) {
   }
   const faceId = tavernext.parseFaceTag(out)
   if (faceId) out = tavernext.stripFaceTag(out)
-  if (!out && !faceId) return
+  // 纯动作回复（只斗图/只甩图不说话）是合法的 —— 有动作就不 return
+  const hasActions = toolCalls.calls.some(c => c.name !== "voice")
+  if (!out && !faceId && !hasActions) return
   if (!out && faceId) out = "…"
 
   /* ---- 发出去：文字 / 语音 ---- */
   const wantsVoice = toolCalls.calls.some(c => c.name === "voice")
-  const wouldVoice = wantsVoice || tts.shouldVoice(conf, out)
+  const wouldVoice = !!out && (wantsVoice || tts.shouldVoice(conf, out))
   const keepText = conf.tts?.keepText !== false
 
-  if (!wouldVoice || keepText) {
+  if (out && (!wouldVoice || keepText)) {
     await sleep(Math.max(200, charLen(out) * (hz.typingPerChar ?? 55) * 0.35))
     await sendHuman(msg => e.reply(msg), out, hz)
   }
 
-  if (wouldVoice) {
+  if (out && wouldVoice) {
     const v = await tts.tryVoice(conf, out)
     if (v.ok) {
       try {
@@ -347,7 +352,8 @@ async function respond(conf, e, userText, opts = {}) {
     }
   }
 
-  await mem.pushCtx(conf, qq, userText, out)
+  // 纯动作回复（只甩图不说话）也要记档，不然下一句她会懵
+  await mem.pushCtx(conf, qq, userText, out || "（只回了一张图，没说话）")
   await mem.touchLast(conf, qq)
   await mem.resetNoReply(conf, qq)
 
@@ -682,8 +688,14 @@ export class MiaoWu extends plugin {
           const r2 = meme.addMeme(conf, buf, { ...v, from: nickOf(e) }, mime)
           if (r2.ok) collected = "，这张已经悄悄收进我的表情包库了"
         }
-        const kind = v.type === "表情包" ? "表情包" : "图"
-        notes.push(`[他发了一张${kind}：${v.caption}（情绪：${v.emotion || "不好说"}）${collected}]`)
+        if (v.type === "表情包") {
+          notes.push(
+            `[他甩来一张表情包：${v.caption}（情绪：${v.emotion || "不好说"}）${collected}]` +
+            "（这是斗图。你可以接话，也可以只回一张表情包不说话 —— 用 [[发表情:…]]，正文留空即可）",
+          )
+        } else {
+          notes.push(`[他发了一张${v.type === "截图" ? "截图" : "图"}：${v.caption}（情绪：${v.emotion || "不好说"}）${collected}]`)
+        }
       } catch (err) {
         log.warn(`${TAG} 图片处理失败：${err.message}`)
       }
