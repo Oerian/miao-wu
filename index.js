@@ -42,6 +42,7 @@ import { dropLoreCache } from "./lib/lorebook.js"
 import { sendHuman, readDelay } from "./lib/reply.js"
 import { detectDrawIntent, planDraw, planRefine, renderImage, bridgeAlive, listLoras } from "./lib/draw.js"
 import { parseToolCalls, runToolCalls } from "./lib/tools.js"
+import * as tavernext from "./lib/tavernext.js"
 import { sleep, rand, plainText, cut, charLen, ago, pick } from "./lib/util.js"
 
 const TAG = "[喵呜]"
@@ -249,6 +250,9 @@ async function respond(conf, e, userText, opts = {}) {
     )
   }
 
+  // 卡片正则（输入侧）：卡作者定义的用户消息预处理规则
+  userText = tavernext.applyRegexRules(card, userText, "input")
+
   // 这个存档还一句话都没说过 → 先让她自己开口（酒馆的 first_mes）
   if (!opts.noOpening) {
     const hist = await mem.loadCtx(conf, qq)
@@ -285,6 +289,28 @@ async function respond(conf, e, userText, opts = {}) {
   }
   if (!out) return
 
+  /* ---- 酒馆助手等价层：卡正则 → 变量 → 宏 → 快捷选项 → 表情 ---- */
+  out = tavernext.applyRegexRules(card, out, "output")
+  const vt = await tavernext.applyVarTags(conf, qq, out)
+  out = vt.text
+  if (vt.changed.length) log.mark(`${TAG} 变量更新：${vt.changed.join(" ")}`)
+  out = tavernext.expandMacros(out, {
+    char: card?.name,
+    user: "主人",
+    nick: nickOf(e),
+    vars: await tavernext.getVars(conf, qq),
+  })
+  const opt = tavernext.parseOptions(out)
+  out = opt.text
+  if (opt.options.length) {
+    await tavernext.saveOptions(conf, qq, opt.options)
+    out = `${out}\n（回复数字 1-${opt.options.length} 选一个）`
+  }
+  const faceId = tavernext.parseFaceTag(out)
+  if (faceId) out = tavernext.stripFaceTag(out)
+  if (!out && !faceId) return
+  if (!out && faceId) out = "…"
+
   /* ---- 发出去：文字 / 语音 ---- */
   const wantsVoice = toolCalls.calls.some(c => c.name === "voice")
   const wouldVoice = wantsVoice || tts.shouldVoice(conf, out)
@@ -308,6 +334,15 @@ async function respond(conf, e, userText, opts = {}) {
     } else if (!keepText) {
       // 只发语音模式下合成失败 → 兜底把文字发出来，别让他干等
       await sendHuman(msg => e.reply(msg), out, hz)
+    }
+  }
+
+  // 表情标记：文字（或语音）之后补一个 QQ 表情
+  if (faceId && globalThis.segment?.face) {
+    try {
+      await e.reply(globalThis.segment.face(faceId))
+    } catch (err) {
+      log.debug?.(`${TAG} 表情发送失败：${err.message}`)
     }
   }
 
@@ -523,6 +558,13 @@ export class MiaoWu extends plugin {
     if (charLen(body) > (conf.scope?.maxChars ?? 500)) {
       await e.reply("太长了…说重点。")
       return "return"
+    }
+
+    /* ---------------- 快捷选项 ---------------- */
+    // 她上一句给了 [[选项:A|B|C]]，用户回数字 → 直接换成对应选项文本进聊天
+    {
+      const picked = await tavernext.takeOption(conf, String(e.user_id), body)
+      if (picked) return this.handleChat(e, picked, conf) && "return"
     }
 
     /* ---------------- 绘图分流 ---------------- */
@@ -868,6 +910,24 @@ export class MiaoWu extends plugin {
     switch (act) {
       case "状态":
         return this.showStatus(e, conf)
+
+      case "状态栏": {
+        const { card } = await currentCard(conf, qq)
+        const html = tavernext.statebarHtml(card, {
+          char: card?.name,
+          user: "主人",
+          nick: nickOf(e),
+          vars: await tavernext.getVars(conf, qq),
+        })
+        if (!html) {
+          return e.reply(
+            "这张卡没写状态栏。\n卡作者在 front-matter 里加：\nstatebar: |\n  <div>…HTML…</div>\n就能用图片看状态了（{{var:名字}} 会取变量值）。",
+          )
+        }
+        const img = await tavernext.renderStatebar(html)
+        if (!img) return e.reply("状态栏渲染失败（渲染器没起？文字状态发「#喵呜 状态」）")
+        return e.reply(img)
+      }
 
       case "可用者":
       case "白名单": {

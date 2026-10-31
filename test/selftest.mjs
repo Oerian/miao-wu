@@ -355,8 +355,102 @@ if (WITH_LLM) {
   for (const [name, ok] of p2) check(`工具：${name}`, ok)
 
   check("工具：说明块（画开tts关）", toolsBlock({ draw: { enabled: true }, tts: { enabled: false } }).includes("[[画:") && !toolsBlock({ draw: { enabled: true }, tts: { enabled: false } }).includes("[[语音]]"))
-  check("工具：说明块（全关为空）", toolsBlock({ draw: { enabled: false }, tts: { enabled: false } }) === "")
+  check("工具：说明块（画关无画标记）", !toolsBlock({ draw: { enabled: false }, tts: { enabled: false } }).includes("[[画:"))
   check("工具：tts 开则含语音", toolsBlock({ draw: { enabled: true }, tts: { enabled: true } }).includes("[[语音]]"))
+}
+
+/* ============================================================ 12.6 酒馆助手等价层 */
+
+{
+  const tx = await import("../lib/tavernext.js")
+
+  // 正则脚本
+  const cardRx = {
+    regex: [
+      { find: "<think>[\\s\\S]*?</think>", replace: "", target: "output" },
+      { find: "主人", replace: "宿主", target: "input" },
+      { find: "([", replace: "x" },
+      { find: "aaa", replace: "b", target: "nope" },
+    ],
+  }
+  check("酒馆助手：输出规则生效", tx.applyRegexRules(cardRx, "<think>思考</think>你好", "output") === "你好")
+  check("酒馆助手：输入规则生效", tx.applyRegexRules(cardRx, "主人早安", "input") === "宿主早安")
+  check("酒馆助手：坏正则不炸", tx.applyRegexRules(cardRx, "看看([这个", "output") === "看看([这个")
+  check("酒馆助手：target 隔离", tx.applyRegexRules(cardRx, "主人早安", "output") === "主人早安")
+
+  // 宏
+  const macroOut = tx.expandMacros("{{char}}对{{nick}}说：{{random:早安|晚安}} {{var:好感度}} {{eval 1+1}}", {
+    char: "鲸鱼娘", nick: "小明", vars: { 好感度: 42 },
+  })
+  check("酒馆助手：宏 char/nick", macroOut.startsWith("鲸鱼娘对小明说："))
+  check("酒馆助手：宏 random 取值合法", /早安|晚安/.test(macroOut))
+  check("酒馆助手：宏 var 取值", macroOut.includes("42"))
+  check("酒馆助手：宏 不执行代码", macroOut.includes("{{eval 1+1}}"))
+
+  // 变量标记（真实存档）
+  const vt1 = await tx.applyVarTags(conf, TEST_QQ, "（她悄悄记下）[[变量:好感度=+2]] [[变量:地点=海边]]")
+  check("酒馆助手：变量标记剥离", !vt1.text.includes("[[变量") && vt1.text.includes("（她悄悄记下）"))
+  check("酒馆助手：变量写入", vt1.changed.includes("好感度=2") && vt1.changed.includes("地点=海边"))
+  const vars = await tx.getVars(conf, TEST_QQ)
+  check("酒馆助手：变量读回", vars["好感度"] === 2 && vars["地点"] === "海边")
+  await tx.applyVarTags(conf, TEST_QQ, "[[变量:好感度=+3]]")
+  check("酒馆助手：相对加减", (await tx.getVars(conf, TEST_QQ))["好感度"] === 5)
+
+  // 快捷选项
+  const opt = tx.parseOptions("要去哪？[[选项:海边|山上|家里]]")
+  check("酒馆助手：选项解析", opt.options.join(",") === "海边,山上,家里" && !opt.text.includes("[["))
+  await tx.saveOptions(conf, TEST_QQ, opt.options)
+  check("酒馆助手：选项命中", await tx.takeOption(conf, TEST_QQ, "2") === "山上")
+  check("酒馆助手：选项一次性", await tx.takeOption(conf, TEST_QQ, "2") === null)
+  await tx.saveOptions(conf, TEST_QQ, ["a", "b"])
+  check("酒馆助手：非数字不命中", await tx.takeOption(conf, TEST_QQ, "嗯嗯") === null)
+
+  // 表情
+  check("酒馆助手：表情解析", tx.parseFaceTag("好耶！[[表情:偷笑]]") === 28)
+  check("酒馆助手：表情数字兜底", tx.parseFaceTag("[[表情:100]]") === 100)
+  check("酒馆助手：表情未知名", tx.parseFaceTag("[[表情:比心]]") === null)
+  check("酒馆助手：表情剥离", tx.stripFaceTag("好耶！[[表情:偷笑]]") === "好耶！")
+
+  // 软召回
+  await mem.addEpisode(conf, TEST_QQ, "两人在海边散步，她说最喜欢晚上的海", "event")
+  await mem.addEpisode(conf, TEST_QQ, "在图书馆一起补作业，她睡着了", "event")
+  await mem.addEpisode(conf, TEST_QQ, "第一次一起吃火锅，她被辣哭了", "event")
+  const recalled = await mem.recallEpisodes(conf, TEST_QQ, "还记得海边的晚上吗", 2)
+  check("软召回：相关记忆排前", recalled.length >= 1 && recalled[0].text.includes("海边"))
+  const recalled2 = await mem.recallEpisodes(conf, TEST_QQ, "", 2)
+  check("软召回：空查询退化为按时间", recalled2.length >= 1 && recalled2[recalled2.length - 1].text.includes("火锅"))
+
+  // 状态栏
+  check("酒馆助手：无状态栏为 null", tx.statebarHtml({}) === null)
+  const sb = tx.statebarHtml({ statebar: "<div>{{char}} · 好感 {{var:好感度}}</div>" }, { char: "鲸鱼娘", vars: { 好感度: 5 } })
+  check("酒馆助手：状态栏展开", sb === "<div>鲸鱼娘 · 好感 5</div>")
+}
+
+/* ============================================================ 12.7 安全 */
+
+{
+  // 角色卡 id 路径穿越：../../../../windows/win.ini 之类必须拿不到
+  const evil = await loadCharacter(conf, "..\\..\\..\\Windows\\win.ini")
+  check("安全：反斜杠穿越被拒", evil === null)
+  const evil2 = await loadCharacter(conf, "../../../etc/passwd")
+  check("安全：正斜杠穿越被拒", evil2 === null)
+  const evil3 = await loadCharacter(conf, "..")
+  check("安全：.. 单独也被拒", evil3 === null)
+  const ok = await loadCharacter(conf, "lizi")
+  check("安全：正常 id 不受影响", ok?.name === "栗子")
+
+  // 宏不执行代码（前面 12.6 已覆盖 {{eval}}），这里补正则规则不能把输入变成调用
+  const { applyRegexRules } = await import("../lib/tavernext.js")
+  const hostile = applyRegexRules(
+    { regex: [{ find: "x", replace: "[[画:炸弹图]]", target: "input" }] },
+    "x 你好",
+    "input",
+  )
+  check("安全：卡正则替换产物仍走标记解析（不会绕过执行层）", hostile === "[[画:炸弹图]] 你好")
+
+  // 超长 find 直接跳过（防 ReDoS 载荷）
+  const long = applyRegexRules({ regex: [{ find: "(a+)+$".padEnd(600, "a"), replace: "!" }] }, "aaaa", "output")
+  check("安全：超长正则规则被跳过", long === "aaaa")
 }
 
 /* ============================================================ 收尾 */

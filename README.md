@@ -46,7 +46,20 @@
 ```bash
 cd Miao-Yunzai/plugins
 git clone <this-repo> miao-wu
+cd miao-wu
 ```
+
+然后跑一键安装（生成配置 + 自检）：
+
+```bash
+# Linux / macOS / Android Termux
+bash scripts/install.sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+**Termux（安卓手机）**：`pkg install nodejs-lts git` 之后同样 clone + `bash scripts/install.sh`。puppeteer 渲染在手机上装不了会自动降级文字版；Redis 可选（`pkg install redis`），双写存储没 Redis 也能跑。
 
 依赖只有 `yaml`（云崽自带）。
 
@@ -630,6 +643,36 @@ draw:
 - `[[语音]]` —— 这句话用语音发（需要 `tts.enabled: true`）
 
 插件解析标记 → 剥掉 → 执行，标记不会显示在聊天里。明确说"画个XX"仍走正则意图识别（更快更稳），标记是给"聊着聊着突然想给你看什么东西"这种场景用的。关掉 `tools.enabled` 即回退纯正则。
+
+---
+
+## 酒馆助手等价层
+
+SillyTavern 的「酒馆助手」（Tavern Helper）能力在 QQ 纯文本通道里的等价实现。全部由**角色卡作者**在卡里声明，不执行任意 JS（QQ 端没有沙箱）：
+
+| 酒馆助手能力 | QQ 等价 | 卡片写法 |
+|---|---|---|
+| 正则脚本（Regex 扩展） | 对模型输入/输出做查找替换 | front-matter `regex:` 列表 |
+| HTML 状态栏渲染 | puppeteer 渲染成图片，`#喵呜 状态栏` 查看 | front-matter `statebar:` HTML |
+| 变量系统（get/setvar） | 模型嵌 `[[变量:好感度=+1]]` 记状态（支持相对加减） | 模板里 `{{var:名字}}` 读 |
+| 快捷按钮（QuickReply） | 模型嵌 `[[选项:A\|B\|C]]`，用户回数字 | — |
+| 宏（`{{user}}` 等） | `{{char}}` `{{user}}` `{{nick}}` `{{date}}` `{{time}}` `{{weekday}}` `{{random:a\|b}}` `{{var:名}}` | — |
+| 表情/动作 | 模型嵌 `[[表情:开心]]`，映射成 QQ 小表情 | — |
+
+卡片 front-matter 示例：
+
+```yaml
+regex:
+  - find: "<think>[\\s\\S]*?</think>"
+    replace: ""
+    target: output        # output / input / both
+statebar: |
+  <div style="padding:14px;border-radius:12px;background:#eaf4fb">
+    <b>{{char}}</b> 好感度 {{var:好感度}} · 位置 {{var:地点}}
+  </div>
+```
+
+安全边界：正则规则限长 500、坏正则跳过不炸；宏是纯字符串替换不 eval；变量只存在该用户的存档里。
 
 ---
 
