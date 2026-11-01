@@ -357,6 +357,36 @@ if (WITH_LLM) {
   check("工具：说明块（画开tts关）", toolsBlock({ draw: { enabled: true }, tts: { enabled: false } }).includes("[[画:") && !toolsBlock({ draw: { enabled: true }, tts: { enabled: false } }).includes("[[语音]]"))
   check("工具：说明块（画关无画标记）", !toolsBlock({ draw: { enabled: false }, tts: { enabled: false } }).includes("[[画:"))
   check("工具：tts 开则含语音", toolsBlock({ draw: { enabled: true }, tts: { enabled: true } }).includes("[[语音]]"))
+
+  // 自主提需求
+  const pw = parseToolCalls("主人，我想要一个机甲风的 LoRA 嘛～\n[[需求:机甲风 LoRA，画巨大机体用]]")
+  check("工具：解析需求标记", pw.calls.length === 1 && pw.calls[0].name === "wish" && pw.calls[0].arg.includes("机甲"))
+  check("工具：需求标记被剥掉", !pw.text.includes("[[") && pw.text.includes("想要一个机甲"))
+  check("工具：说明块含需求用法", toolsBlock({ draw: { enabled: true }, tts: { enabled: false }, meme: { enabled: false } }).includes("[[需求:"))
+  check("工具：说明块（画关无需求）", !toolsBlock({ draw: { enabled: false }, tts: { enabled: false }, meme: { enabled: false } }).includes("[[需求:"))
+
+  const wish = await import("../lib/wish.js")
+  const tmpData = `data/selftest-wish-${Date.now().toString(36)}`
+  const wishConf = { memory: { dataDir: tmpData }, draw: { wishCooldownMin: 60 } }
+  const r1 = wish.recordWish(wishConf, "123", "想要一个赛博朋克街景的 LoRA")
+  check("需求：首条落盘", r1.ok === true)
+  const r2 = wish.recordWish(wishConf, "123", "再要一个")
+  check("需求：冷却期内拒绝", r2.ok === false && r2.waitMin > 0)
+  const r3 = wish.recordWish(wishConf, "456", "表情包库里没有生气的图")
+  check("需求：不同人不互相冷却", r3.ok === true)
+  const wl = wish.listWishes(wishConf)
+  check("需求：清单新的在前", wl[0]?.text === "表情包库里没有生气的图" && wl.length === 2)
+  check("需求：超长截断", wish.recordWish({ ...wishConf, draw: { wishCooldownMin: 0 } }, "456", "x".repeat(200)).ok && wish.listWishes(wishConf)[0].text.length <= 120)
+  wish.clearWishes(wishConf)
+  check("需求：清空后为空", wish.listWishes(wishConf).length === 0)
+  fs.rmSync(path.resolve(tmpData), { recursive: true, force: true })
+
+  // LoRA 说明表
+  const draw = await import("../lib/draw.js")
+  const notes = draw.loadLoraNotes({ loraNotes: "config/lora-notes.example.yaml" }, true)
+  check("lora-notes：读到映射", notes instanceof Map && [...notes.values()].some(v => v.includes("鲸鱼娘")))
+  const notes2 = draw.loadLoraNotes({ loraNotes: "config/不存在的-notes.yaml" }, true)
+  check("lora-notes：缺文件给空表", notes2 instanceof Map && notes2.size === 0)
 }
 
 /* ============================================================ 12.6 酒馆助手等价层 */
@@ -464,6 +494,8 @@ if (WITH_LLM) {
 {
   const meme = await import("../lib/meme.js")
   const conf2 = { ...conf, memory: { ...(conf.memory || {}), dataDir: "data/test-memes" } }
+  // 测试目录先清现场：库里残留几张旧图，下面"长度 === 相对值"的断言就全歪了
+  fs.rmSync(path.join(HERE, "..", "data", "test-memes"), { recursive: true, force: true })
 
   // 收藏 + sha1 去重
   const fakePng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -479,9 +511,10 @@ if (WITH_LLM) {
   const rand = meme.findMeme(conf2, "完全不相干的查询词组")
   check("表情包：不命中也兜底随机", !!rand)
 
-  // 列表 / 删除
-  check("表情包：列表有数", meme.listMemes(conf2).length === 2)
-  check("表情包：删除", meme.removeMeme(conf2, meme.listMemes(conf2)[0].id) && meme.listMemes(conf2).length === 1)
+  // 列表 / 删除（相对数量断言，不写死数字）
+  const nBefore = meme.listMemes(conf2).length
+  check("表情包：列表有数", nBefore === 2)
+  check("表情包：删除", meme.removeMeme(conf2, meme.listMemes(conf2)[0].id) && meme.listMemes(conf2).length === nBefore - 1)
 
   // 上限挤兑
   const conf3 = { ...conf2, meme: { maxCount: 2 } }
