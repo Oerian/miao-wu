@@ -49,6 +49,9 @@ import { sleep, rand, plainText, cut, charLen, ago, pick } from "./lib/util.js"
 
 const TAG = "[喵呜]"
 
+/** 「换」（swipe）的版本历史，按 QQ 存在 hidden 里 */
+const SWIPES_KEY = "swipes"
+
 /** 惰性代理：logger 可能比插件初始化得晚，不能直接缓存 */
 const log = {
   info: (...a) => (globalThis.logger || console).info?.(...a),
@@ -182,7 +185,7 @@ async function playOpening(e, conf, card, { force = false } = {}) {
 /**
  * 调模型拿一句回复，带反重复和破戏重试。
  */
-async function generate(conf, e, qq, card, userText, mode = "chat") {
+async function generate(conf, e, qq, card, userText, mode = "chat", genOpts = {}) {
   const prov = provFor(conf)
   const idle = await mem.idleMinutes(conf, qq)
   const cast = await mem.getCast(conf, qq)
@@ -192,6 +195,7 @@ async function generate(conf, e, qq, card, userText, mode = "chat") {
     idleMin: idle,
     mode,
     prevCast: cast,
+    ...genOpts,
   })
 
   // 记下这次到底吃了多少窗口 —— 后面提醒、状态、WebUI 都用这个实测值
@@ -278,6 +282,25 @@ async function respond(conf, e, userText, opts = {}) {
   }
   if (!out) return
 
+  await finalizeReply(conf, e, qq, card, userText, out, { drawOnce: opts.drawOnce })
+
+  // 上下文压力：auto 才自动压，remind 只提醒（不阻塞回复）
+  pressureSoon(e, conf, qq, card)
+}
+
+/**
+ * 发送管线：工具标记 → 卡正则 → 变量 → 宏 → 选项 → 表情 → 文字/语音 →
+ * 记档 → 工具执行 → （可选）状态栏。
+ *
+ * respond / 换（swipe）/ 继续（continue）共用这一条链 —— 保证不管从哪个
+ * 入口生成的话，处理和记档的方式都一模一样。
+ *
+ * @returns {Promise<string>} 真正发出去的正文（swipe 版本历史存它）
+ */
+async function finalizeReply(conf, e, qq, card, userText, rawOut, opts = {}) {
+  const hz = conf.humanize || {}
+  let out = rawOut
+
   // 工具标记：模型自己决定画画/发语音。剥掉标记，剩下的当正文发。
   const toolCalls = { calls: [] }
   if (conf.tools?.enabled !== false) {
@@ -292,7 +315,7 @@ async function respond(conf, e, userText, opts = {}) {
       }
     }
   }
-  if (!out) return
+  if (!out) return ""
 
   /* ---- 酒馆助手等价层：卡正则 → 变量 → 宏 → 快捷选项 → 表情 ---- */
   out = tavernext.applyRegexRules(card, out, "output")
@@ -313,9 +336,9 @@ async function respond(conf, e, userText, opts = {}) {
   }
   const faceId = tavernext.parseFaceTag(out)
   if (faceId) out = tavernext.stripFaceTag(out)
-  // 纯动作回复（只斗图/只甩图不说话）是合法的 —— 有动作就不 return
+  // 纯动作回复（只斗图/只甩图不说话）是合法的 —— 有动作就继续往下走
   const hasActions = toolCalls.calls.some(c => c.name !== "voice")
-  if (!out && !faceId && !hasActions) return
+  if (!out && !faceId && !hasActions) return ""
   if (!out && faceId) out = "…"
 
   /* ---- 发出去：文字 / 语音 ---- */
@@ -368,8 +391,30 @@ async function respond(conf, e, userText, opts = {}) {
     if (results.length) log.mark(`${TAG} 工具执行：${results.join(" ")}`)
   }
 
-  // 上下文压力：auto 才自动压，remind 只提醒（不阻塞回复）
-  pressureSoon(e, conf, qq, card)
+  // 状态栏自动渲染（酒馆助手是每楼都渲染；这里按周期发，autoStatebar: 1 = 每轮）
+  const every = Number(conf.tavern?.autoStatebar ?? 0)
+  if (every >= 1 && out) {
+    try {
+      const ctx = await mem.loadCtx(conf, qq)
+      const turns = Math.ceil(ctx.length / 2)
+      if (turns % every === 0) {
+        const html = tavernext.statebarHtml(card, {
+          char: card?.name,
+          user: "主人",
+          nick: nickOf(e),
+          vars: await tavernext.getVars(conf, qq),
+        })
+        if (html) {
+          const img = await tavernext.renderStatebar(html)
+          if (img) await e.reply(img)
+        }
+      }
+    } catch (err) {
+      log.debug?.(`${TAG} 状态栏自动渲染跳过：${err.message}`)
+    }
+  }
+
+  return out
 }
 
 /**
@@ -437,6 +482,8 @@ const HELP = [
   "#喵呜 场景 <描述>   设临时场景（「场景 清」清掉）",
   "#喵呜 我是 <人设>   你是谁（「我是 清」清掉）",
   "#喵呜 同场 <id...>  让别的角色也在场",
+  "#喵呜 换            同一句话换个说法（换 回/前 翻版本）",
+  "#喵呜 继续          让她把没说完的话接着说完",
   "#喵呜 重来          撤回上一轮重说",
   "#喵呜 改 <那句话>   改写她刚说的那句",
   "",
@@ -1391,6 +1438,89 @@ export class MiaoWu extends plugin {
         const ok = await mem.setLastAssistant(conf, qq, arg)
         if (!ok) return e.reply("还没有能改的回复。")
         return e.reply(`（记下了）刚才那句就当是：「${cut(arg, 60)}」`)
+      }
+
+      /* 换 = 酒馆的 Swipe：同一条消息换个说法，版本都留着可以翻回去 */
+      case "换":
+      case "swipe": {
+        const sub = arg.trim()
+        const raw = await mem.getHidden(conf, qq, SWIPES_KEY)
+        let sw = (() => { try { return JSON.parse(raw) || null } catch { return null } })()
+
+        // 翻版本：换 回 / 换 前 / 换 <数字>
+        if (/^(回|上一版?|back)$/i.test(sub) || /^(前|下一版?|next)$/i.test(sub) || /^\d+$/.test(sub)) {
+          if (!sw || !sw.versions?.length) return e.reply("还没有版本记录。先用「#喵呜 换」生成一版。")
+          const back = /^(回|上一版?|back)$/i.test(sub)
+          const fwd = /^(前|下一版?|next)$/i.test(sub)
+          let idx = sw.active ?? sw.versions.length - 1
+          if (back) idx--
+          else if (fwd) idx++
+          else idx = Number(sub) - 1
+          if (idx < 0) return e.reply("已经是第一版了。")
+          if (idx >= sw.versions.length) return e.reply(`只有 ${sw.versions.length} 版。想再来一版就发「#喵呜 换」。`)
+          sw.active = idx
+          await mem.setHidden(conf, qq, SWIPES_KEY, JSON.stringify(sw))
+          await mem.setLastAssistant(conf, qq, sw.versions[idx])
+          return sendHuman(m => e.reply(m), sw.versions[idx], conf.humanize || {})
+        }
+
+        // 生成新版：撤掉最后一条回复，同 context 重新生成
+        const ctx = await mem.loadCtx(conf, qq)
+        const lastMsg = ctx[ctx.length - 1]
+        if (!lastMsg || lastMsg.role !== "assistant") return e.reply("我还没回话呢，换什么。")
+        if (!sw || sw.versions?.[sw.active] !== lastMsg.content) {
+          // 上下文已经变了 / 第一次换 → 从当前这句开始记版本
+          sw = { versions: [lastMsg.content], active: 0, userText: await mem.lastUserText(conf, qq) }
+        }
+        const userText = sw.userText || (await mem.lastUserText(conf, qq))
+        if (!userText) return e.reply("找不到你上一句说的什么，换不了。")
+        const { card: swCard } = await currentCard(conf, qq)
+        if (!swCard) return e.reply("没装角色卡。")
+        await mem.popLast(conf, qq, 1)
+        let swOut
+        try {
+          swOut = await generate(conf, e, qq, swCard, userText, "chat")
+        } catch (err) {
+          log.error(`${TAG} 换一版失败: ${err.stack || err}`)
+          return e.reply(`（卡住了）${String(err.message).slice(0, 100)}`)
+        }
+        if (!swOut) return e.reply("（这版没想好怎么说，再试一次吧）")
+        const finalOut = await finalizeReply(conf, e, qq, swCard, userText, swOut, {
+          drawOnce: subject => this.handleDraw(e, subject, conf, { mode: "new" }),
+        })
+        if (finalOut && finalOut !== sw.versions[sw.versions.length - 1]) {
+          sw.versions.push(finalOut)
+          sw.active = sw.versions.length - 1
+          await mem.setHidden(conf, qq, SWIPES_KEY, JSON.stringify(sw))
+        }
+        return
+      }
+
+      /* 继续 = 酒馆的 Continue：把没说完的话接着说完 */
+      case "继续":
+      case "续": {
+        const ctx = await mem.loadCtx(conf, qq)
+        const lastMsg = ctx[ctx.length - 1]
+        if (!lastMsg) return e.reply("还没聊过呢，续什么。")
+        if (lastMsg.role !== "assistant") return e.reply("该你先说了，我再接着说。")
+        const lastText = lastMsg.content
+        if (/（只回了一张图/.test(lastText)) return e.reply("刚才只发了图，没话可续。")
+        const { card: ctCard } = await currentCard(conf, qq)
+        if (!ctCard) return e.reply("没装角色卡。")
+        await mem.popLast(conf, qq, 1)
+        let ctOut
+        try {
+          ctOut = await generate(conf, e, qq, ctCard, "", "continue", { continueText: lastText })
+        } catch (err) {
+          log.error(`${TAG} 继续失败: ${err.stack || err}`)
+          return e.reply(`（卡住了）${String(err.message).slice(0, 100)}`)
+        }
+        if (!ctOut) return e.reply("（接不上…再说一次？）")
+        // 接在原话后面，记档存合并后的完整一条
+        await finalizeReply(conf, e, qq, ctCard, "", lastText + ctOut, {
+          drawOnce: subject => this.handleDraw(e, subject, conf, { mode: "new" }),
+        })
+        return
       }
 
       case "记忆": {

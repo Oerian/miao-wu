@@ -79,6 +79,37 @@ check("常驻条目也进去了", /老槐树/.test(hit1.text))
 const hit2 = selectLore(conf, yh, "随便聊聊吧", "")
 check("闲聊只注入常驻条目", hit2.hits.length >= 2 && !/鱼缸/.test(hit2.text), hit2.hits.join(", "))
 
+/* ---- 世界书进阶规则（副关键词 / 概率 / 递归） ---- */
+{
+  const loreCard = {
+    id: "test-lore",
+    lorebook: {
+      entries: [
+        { id: "base", keys: [], content: "世界基底", constant: true },
+        { id: "a", keys: ["魔法"], content: "魔法源自贤者之石" },
+        { id: "b", keys: ["贤者之石"], content: "贤者之石是传说中的宝物" },
+        { id: "sel", keys: ["猫"], secondaryKeys: ["鱼"], content: "猫和鱼的设定" },
+        { id: "zero", keys: ["狗"], probability: 0, content: "永不该出现的条目" },
+      ],
+    },
+  }
+  const c1 = selectLore(conf, loreCard, "她会用魔法吗", "")
+  check("世界书：递归带出条目", c1.hits.includes("魔法") && c1.hits.includes("贤者之石"), c1.hits.join(","))
+  const c2 = selectLore(conf, { ...loreCard }, "她会用魔法吗", "")
+  check("世界书：递归内容不重复注入自身", (c2.text.match(/贤者之石/g) || []).length >= 1)
+  const c3 = selectLore(conf, loreCard, "我家猫真可爱", "")
+  check("世界书：副关键词不命中则不注入", !c3.text.includes("猫和鱼的设定"))
+  const c4 = selectLore(conf, loreCard, "猫和鱼都在", "")
+  check("世界书：副关键词命中才注入", c4.text.includes("猫和鱼的设定"))
+  const c5 = selectLore({ ...conf, lorebook: { ...(conf.lorebook || {}), recursion: false } }, loreCard, "她会用魔法吗", "")
+  check("世界书：关递归就只命中一层", c5.hits.includes("魔法") && !c5.hits.includes("贤者之石"), c5.hits.join(","))
+  let zeroSeen = false
+  for (let i = 0; i < 30; i++) {
+    if (selectLore(conf, loreCard, "汪汪狗", "").hits.includes("zero")) zeroSeen = true
+  }
+  check("世界书：probability=0 永不触发", !zeroSeen)
+}
+
 /* ============================================================ 3. 提示词 */
 
 console.log("\n=== 3. 提示词组装 ===")
