@@ -42,6 +42,7 @@ import { dropLoreCache } from "./lib/lorebook.js"
 import { sendHuman, readDelay } from "./lib/reply.js"
 import { detectDrawIntent, planDraw, planRefine, renderImage, bridgeAlive, listLoras } from "./lib/draw.js"
 import { parseToolCalls, runToolCalls } from "./lib/tools.js"
+import { listWishes, clearWishes } from "./lib/wish.js"
 import * as tavernext from "./lib/tavernext.js"
 import * as meme from "./lib/meme.js"
 import { sleep, rand, plainText, cut, charLen, ago, pick } from "./lib/util.js"
@@ -459,6 +460,7 @@ const HELP = [
   "【绘图】",
   "#喵呜 画 <描述>     指定描述出图",
   "#喵呜 lora          列出可用 LoRA",
+  "#喵呜 需求          看她提的需求清单（「需求 清」清空）",
   "",
   "【其它】",
   "#喵呜 可用者        看谁能用（加/删/清）",
@@ -1533,6 +1535,24 @@ export class MiaoWu extends plugin {
         for (const l of list) (byDir[l.dir] ||= []).push(l.name)
         const body = Object.entries(byDir).map(([d, ns]) => `【${d}】${ns.join("、")}`).join("\n\n")
         return e.reply(`共 ${list.length} 个：\n\n${body}`.slice(0, 1500))
+      }
+
+      case "需求": {
+        const sub = arg.trim()
+        if (/^(清|清空|删|clear)$/i.test(sub)) {
+          clearWishes(conf)
+          return e.reply("需求清单清空了。")
+        }
+        const list = listWishes(conf)
+        if (!list.length) return e.reply("需求清单是空的。她提了需求会记在这里，并私聊提醒你。")
+        const body = list
+          .map(w => {
+            const d = new Date(Number(w.at || 0))
+            const t = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+            return `· [${t}] ${w.qq}：${w.text}`
+          })
+          .join("\n")
+        return e.reply(`她提的需求（新的在前，清空发「#喵呜 需求 清」）：\n${body}`.slice(0, 1200))
       }
 
       /* ------------------------------------------------ 体检 / 语音 / 主动 */

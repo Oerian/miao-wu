@@ -10,6 +10,9 @@ config/characters/
 config/lorebooks/
 config/draw-knowledge.md
 
+# 本机 LoRA 说明表（对应你自己的模型库），示例见 config/lora-notes.example.yaml
+config/lora-notes.yaml
+
 # 日志
 *.log
 

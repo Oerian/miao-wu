@@ -1,0 +1,11 @@
+# LoRA 说明表 —— 让她知道每个 LoRA 是干嘛的
+#
+# key：LoRA 文件名（不带扩展名）或相对 loraDir 的路径，大小写不敏感
+# value：一句话说明（是什么风格/什么角色、什么时候用、触发词）
+#
+# 没写到的 LoRA 她只能按文件名猜，画重要的东西前建议都补上。
+
+whalegirl: 鲸鱼娘角色 LoRA，画鲸鱼娘（蓝发兽耳少女）时必带，触发词 whalegirl
+
+# style/Ghibli: 吉卜力水彩风景风
+# Pixel_Art_XL: 像素画风
