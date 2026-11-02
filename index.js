@@ -334,12 +334,12 @@ async function finalizeReply(conf, e, qq, card, userText, rawOut, opts = {}) {
     await tavernext.saveOptions(conf, qq, opt.options)
     out = `${out}\n（回复数字 1-${opt.options.length} 选一个）`
   }
-  const faceId = tavernext.parseFaceTag(out)
-  if (faceId) out = tavernext.stripFaceTag(out)
+  // 默认小表情很呆：[[表情:…]] 标记只剥掉，不再发送 QQ face 段
+  if (out.includes("[[表情")) out = tavernext.stripFaceTag(out)
   // 纯动作回复（只斗图/只甩图不说话）是合法的 —— 有动作就继续往下走
   const hasActions = toolCalls.calls.some(c => c.name !== "voice")
-  if (!out && !faceId && !hasActions) return ""
-  if (!out && faceId) out = "…"
+  if (!out && !hasActions) return ""
+  if (!out) out = "…"
 
   /* ---- 发出去：文字 / 语音 ---- */
   const wantsVoice = toolCalls.calls.some(c => c.name === "voice")
@@ -364,15 +364,6 @@ async function finalizeReply(conf, e, qq, card, userText, rawOut, opts = {}) {
     } else if (!keepText) {
       // 只发语音模式下合成失败 → 兜底把文字发出来，别让他干等
       await sendHuman(msg => e.reply(msg), out, hz)
-    }
-  }
-
-  // 表情标记：文字（或语音）之后补一个 QQ 表情
-  if (faceId && globalThis.segment?.face) {
-    try {
-      await e.reply(globalThis.segment.face(faceId))
-    } catch (err) {
-      log.debug?.(`${TAG} 表情发送失败：${err.message}`)
     }
   }
 
