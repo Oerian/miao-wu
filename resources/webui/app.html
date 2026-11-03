@@ -205,6 +205,13 @@ const del = p => api(p, { method: 'DELETE' })
 
 /* ================= 在线状态 / 二维码自动刷新 ================= */
 let QR_LAST_MTIME = 0
+let OFFLINE_BOX = null
+function sinceText(ts) {
+  if (!ts) return ''
+  const m = Math.max(1, Math.round((Date.now() - ts) / 60000))
+  if (m < 60) return m + ' 分钟'
+  return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分钟'
+}
 async function pollQR() {
   try {
     const r = await api('/api/qr')
@@ -212,8 +219,7 @@ async function pollQR() {
     if (dot) dot.className = 'dot ' + (r.online ? 'ok' : 'bad')
     dot && (dot.title = r.online ? '在线' : '离线 · 打开概览扫码')
     if (!r.online && r.img) {
-      // 只在二维码变化时更新，避免无谓重绘
-      showOfflineQR(r.img, r.mtime)
+      showOfflineQR(r.img, r.mtime, r.offlineSince)
       QR_LAST_MTIME = r.mtime
       setTimeout(pollQR, 5000)
     } else {
@@ -222,19 +228,22 @@ async function pollQR() {
     }
   } catch { setTimeout(pollQR, 15000) }
 }
-let OFFLINE_BOX = null
-function showOfflineQR(img, mtime) {
+function showOfflineQR(img, mtime, offlineSince) {
   if (TAB !== 'home') return            // 横幅只在概览页显示
   if (OFFLINE_BOX && document.body.contains(OFFLINE_BOX)) {
     const im = OFFLINE_BOX.querySelector('img')
     if (im && mtime !== QR_LAST_MTIME) im.src = img
+    OFFLINE_BOX.querySelector('.offtime').textContent =
+      `已离线 ${sinceText(offlineSince)} · 二维码 ${Math.max(1, Math.round((Date.now() - mtime) / 60000))} 分钟前刷新（自动续，不用管）`
     return
   }
   OFFLINE_BOX = el('div', { class: 'offline' },
     el('img', { src: img, alt: '登录二维码' }),
     el('div', {},
       el('b', {}, '她掉线了'),
-      el('div', { class: 'muted' }, '用手机 QQ 扫左侧二维码重新登录。二维码会自动刷新，不用手动操作；扫完这一秒起几秒内自动上线。')),
+      el('div', { class: 'muted offtime' },
+        `已离线 ${sinceText(offlineSince)} · 二维码自动续，不用管`),
+      el('div', { class: 'muted' }, '手机 QQ 扫左侧二维码，几秒内自动上线。')),
   )
   const first = main.firstChild
   main.insertBefore(OFFLINE_BOX, first)
@@ -313,20 +322,6 @@ async function tabHome() {
         ['节日', s.clock.festival || '—'],
         ['挂着', s.clock.reminds + ' 个提醒'],
       ]),
-      link('语音', 'cfg', [
-        ['状态', s.tts.enabled ? '开' : '关'],
-        ['引擎', s.tts.engine],
-        ['策略', s.tts.mode],
-      ]),
-      link('主动发言', 'cfg', [
-        ['状态', s.proactive.enabled ? '开' : '关'],
-        ['时段', s.proactive.hours.join(':00 - ') + ':00'],
-        ['今日', s.proactive.today + ' / ' + s.proactive.maxPerDay],
-      ]),
-      link('本地酒馆', 'st', [
-        ['直连', s.st.enabled ? '开' : '关'],
-        ['目录', (s.st.dir || '').split(/[\\/]/).filter(Boolean).pop() || '（未填）'],
-      ]),
     ),
     el('h2', { class: 'sec' }, '服务'),
     el('div', { class: 'card', id: 'svcBox' }, el('div', { class: 'empty' }, '探测中…')),
@@ -340,7 +335,8 @@ async function tabHome() {
         toast(r.ok ? r.msg : (r.msg || '没压成'))
         if (r.ok) tabHome()
       }),
-      btn('加个提醒', () => switchTab('clock')),
+      btn('语音设置', () => switchTab('voice')),
+      btn('主动发言', () => switchTab('cfg')),
       btn('看记忆', () => switchTab('mem')),
       btn('刷新', () => switchTab('home')),
     ),
@@ -563,15 +559,34 @@ async function tabClock() {
 async function tabSt() {
   const r = await api('/api/st')
   const s = r.status
-  const head = s.ok
-    ? el('div', { class: 'card' },
-      el('h3', {}, '本地酒馆'),
-      el('div', { class: 'kv' }, el('span', { class: 'k' }, '服务'), el('span', { class: 'v ' + (s.httpOk ? 'ok' : 'bad') }, s.httpOk ? '在线 ' + s.version : 'HTTP 未连上')),
-      el('div', { class: 'kv' }, el('span', { class: 'k' }, '地址'), el('span', { class: 'v' }, s.url)),
-      el('div', { class: 'kv' }, el('span', { class: 'k' }, '目录'), el('span', { class: 'v' }, s.root)),
-      el('div', { class: 'kv' }, el('span', { class: 'k' }, '内容'), el('span', { class: 'v' }, `卡 ${s.chars} · 聊天 ${s.chatDirs} · 世界书 ${s.worlds} · 预设 ${s.presets}`)),
-    )
-    : el('div', { class: 'card' }, el('h3', {}, '本地酒馆'), el('div', { class: 'empty' }, s.msg))
+  const cfg = await api('/api/config')
+  const stCfg = cfg.config.sillytavern || {}
+  const proc = await api('/api/proc').catch(() => null)
+  const stSvc = proc && proc.ok ? proc.list.find(x => x.key === 'sillytavern') : null
+
+  const head = el('div', { class: 'card' },
+    el('h3', {}, '本地酒馆'),
+    el('div', { class: 'kv' }, el('span', { class: 'k' }, '服务'),
+      el('span', { class: 'v ' + (s.ok && s.httpOk ? 'ok' : 'bad') },
+        s.ok ? (s.httpOk ? '在线 ' + (s.version || '') : 'HTTP 未连上') : '没在跑')),
+    stSvc ? el('div', { class: 'kv' }, el('span', { class: 'k' }, '进程'),
+      el('span', { class: 'v ' + (stSvc.up ? 'ok' : 'bad') }, stSvc.up ? '运行中' : '没启动')) : null,
+    el('div', { class: 'row', style: 'margin-top:8px' },
+      el('input', { type: 'text', id: 'cStDir', value: String(stCfg.dir || ''), placeholder: '酒馆安装目录（如 D:\\SillyTavern）', style: 'flex:1;min-width:220px' }),
+      btn('保存目录', async () => {
+        const x = await post('/api/config', { patch: { sillytavern: { ...stCfg, dir: $('#cStDir').value.trim() } } })
+        toast(x.ok ? '已保存' : (x.msg || '失败'))
+        if (x.ok) tabSt()
+      }),
+      !stSvc?.up && stCfg.dir ? btn('启动酒馆', async () => {
+        toast('启动中…')
+        const x = await post('/api/proc/start', { name: 'sillytavern' })
+        toast(x.msg || (x.ok ? '已发起启动' : '失败'))
+        if (x.ok) setTimeout(tabSt, 8000)
+      }, 'act primary') : null,
+    ),
+    el('div', { class: 'muted', style: 'margin-top:6px' }, '启用/关闭酒馆直连在「配置」页的高级 JSON 里，或直接改 sillytavern.enabled'),
+  )
 
   const charList = el('div', { class: 'list' }, r.chars.map(c => el('div', { class: 'item' },
     el('span', { class: 'name' }, c.name),
@@ -739,17 +754,11 @@ async function tabCfg() {
           (c.scope?.whitelist || []).join('\n'))),
     ),
 
-    el('h2', { class: 'sec' }, '绘图 / 语音'),
+    el('h2', { class: 'sec' }, '绘图'),
     el('div', { class: 'card' },
       chk('绘图', 'cDraw', c.draw?.enabled !== false),
       txt('绘图服务地址', 'cDrawUrl', c.draw?.bridgeUrl || 'http://127.0.0.1:7860', 'http://127.0.0.1:7860'),
-      chk('语音', 'cTts', c.tts?.enabled === true),
-      pick('语音引擎', 'cTtsEngine', c.tts?.engine || 'gptsovits', [['gptsovits', 'GPT-SoVITS'], ['openai', 'OpenAI 兼容 /v1/audio/speech']]),
-      txt('语音服务地址', 'cTtsUrl', c.tts?.url || 'http://127.0.0.1:9880'),
-      txt('参考音频（绝对路径）', 'cTtsRef', c.tts?.refAudio || '', 'E:\\voice\\ref.wav'),
-      txt('参考音频里说的那句', 'cTtsRefText', c.tts?.refText || '', '必须一字不差'),
-      pick('发送策略', 'cTtsMode', c.tts?.mode || 'sometimes', [['sometimes', '偶尔发'], ['all', '每条都发'], ['off', '只发文字']]),
-      num('偶尔发的概率 %', 'cTtsChance', Math.round((c.tts?.chance ?? 0.25) * 100)),
+      el('div', { class: 'muted', style: 'margin-top:4px' }, '语音的设置在「语音」页；酒馆目录在「酒馆」页'),
     ),
 
     el('h2', { class: 'sec' }, '时钟 / 主动发言'),
@@ -767,10 +776,8 @@ async function tabCfg() {
           (c.proactive?.topics || []).join('\n'))),
     ),
 
-    el('h2', { class: 'sec' }, '酒馆 / 控制台'),
+    el('h2', { class: 'sec' }, '控制台'),
     el('div', { class: 'card' },
-      chk('酒馆直连', 'cSt', c.sillytavern?.enabled !== false),
-      txt('酒馆目录', 'cStDir', c.sillytavern?.dir || ''),
       pick('控制台监听', 'cHost', c.webui?.host || '127.0.0.1',
         [['127.0.0.1', '只有本机能开'], ['0.0.0.0', '局域网都能开（手机可用）']]),
       num('控制台端口', 'cPort', c.webui?.port || 5199),
@@ -809,16 +816,6 @@ async function saveCommon() {
       whitelist: $('#cWl').value.split('\n').map(s => s.trim()).filter(s => /^\d{5,12}$/.test(s)),
     },
     draw: { ...cfgCache.draw, enabled: $('#cDraw').checked, bridgeUrl: $('#cDrawUrl').value.trim() },
-    tts: {
-      ...cfgCache.tts,
-      enabled: $('#cTts').checked,
-      engine: $('#cTtsEngine').value,
-      url: $('#cTtsUrl').value.trim(),
-      refAudio: $('#cTtsRef').value.trim(),
-      refText: $('#cTtsRefText').value.trim(),
-      mode: $('#cTtsMode').value,
-      chance: Math.max(0, Math.min(100, Number($('#cTtsChance').value) || 0)) / 100,
-    },
     clock: { ...cfgCache.clock, enabled: $('#cClock').checked, reminds: $('#cRemind').checked },
     proactive: {
       ...cfgCache.proactive,
@@ -830,7 +827,6 @@ async function saveCommon() {
       topics,
     },
     tavern: { ...cfgCache.tavern, autoOpening: $('#cOpening').checked },
-    sillytavern: { ...cfgCache.sillytavern, enabled: $('#cSt').checked, dir: $('#cStDir').value.trim() },
     webui: { ...cfgCache.webui, host: $('#cHost').value, port: Number($('#cPort').value) || 5199 },
   }
   const r = await post('/api/config', { patch })
