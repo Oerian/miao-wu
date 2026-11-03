@@ -1,0 +1,1 @@
+window.miaoWuExt = { name: "演示扩展", render(box, h) { box.append(h.el("div", { class: "muted" }, "扩展活了～")) } }

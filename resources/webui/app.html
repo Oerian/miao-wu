@@ -98,6 +98,27 @@
   .empty{color:var(--dim);font-size:12.5px;padding:10px 2px}
   .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 
+  /* 在线状态点 + 掉线横幅 */
+  .dot{width:9px;height:9px;border-radius:99px;background:#c0442f;display:inline-block;flex:none}
+  .dot.ok{background:#3d7a56;box-shadow:0 0 0 3px #3d7a5622}
+  .dot.bad{background:#c0442f;box-shadow:0 0 0 3px #c0442f22}
+  .offline{background:#fdf0ec;border:1px solid #f0cfc5;border-radius:13px;padding:14px 16px;
+    display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .offline img{width:148px;height:148px;border-radius:10px;background:#fff;border:1px solid var(--line)}
+  .offline .muted{max-width:420px}
+
+  /* 记忆统计图 */
+  .stat{display:flex;gap:3px;align-items:flex-end;height:64px;margin:8px 0 2px}
+  .stat i{flex:1;background:linear-gradient(180deg,#e8b98d,#c1743f);border-radius:3px 3px 0 0;min-height:2px}
+  .stat-lab{display:flex;gap:3px}
+  .stat-lab span{flex:1;text-align:center;font-size:9.5px;color:var(--dim);overflow:hidden;white-space:nowrap}
+
+  /* 服务行 */
+  .svc{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+  .svc:last-child{border-bottom:0}
+  .svc .name{font-size:13px;min-width:190px;flex:none}
+  .svc .desc{font-size:12px;color:var(--dim);flex:1;min-width:120px}
+
   /* ---------- 手机 ---------- */
   @media(max-width:820px){
     header{padding:10px 14px 8px;gap:8px}
@@ -125,13 +146,17 @@
 <body>
 <header>
   <h1>喵呜</h1>
+  <span id="netdot" class="dot bad" title="连接状态"></span>
   <div class="who" id="who"></div>
   <nav id="nav">
     <button data-tab="home" class="on">概览</button>
     <button data-tab="chars">角色</button>
     <button data-tab="mem">记忆</button>
+    <button data-tab="voice">语音</button>
     <button data-tab="clock">定时</button>
     <button data-tab="st">酒馆</button>
+    <button data-tab="mods">插件</button>
+    <button data-tab="api">API</button>
     <button data-tab="health">接入</button>
     <button data-tab="cfg">配置</button>
   </nav>
@@ -177,6 +202,46 @@ async function api(path, opt) {
 }
 const post = (p, body) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
 const del = p => api(p, { method: 'DELETE' })
+
+/* ================= 在线状态 / 二维码自动刷新 ================= */
+let QR_LAST_MTIME = 0
+async function pollQR() {
+  try {
+    const r = await api('/api/qr')
+    const dot = $('#netdot')
+    if (dot) dot.className = 'dot ' + (r.online ? 'ok' : 'bad')
+    dot && (dot.title = r.online ? '在线' : '离线 · 打开概览扫码')
+    if (!r.online && r.img) {
+      // 只在二维码变化时更新，避免无谓重绘
+      showOfflineQR(r.img, r.mtime)
+      QR_LAST_MTIME = r.mtime
+      setTimeout(pollQR, 5000)
+    } else {
+      hideOfflineQR()
+      setTimeout(pollQR, r.online ? 30000 : 8000)
+    }
+  } catch { setTimeout(pollQR, 15000) }
+}
+let OFFLINE_BOX = null
+function showOfflineQR(img, mtime) {
+  if (TAB !== 'home') return            // 横幅只在概览页显示
+  if (OFFLINE_BOX && document.body.contains(OFFLINE_BOX)) {
+    const im = OFFLINE_BOX.querySelector('img')
+    if (im && mtime !== QR_LAST_MTIME) im.src = img
+    return
+  }
+  OFFLINE_BOX = el('div', { class: 'offline' },
+    el('img', { src: img, alt: '登录二维码' }),
+    el('div', {},
+      el('b', {}, '她掉线了'),
+      el('div', { class: 'muted' }, '用手机 QQ 扫左侧二维码重新登录。二维码会自动刷新，不用手动操作；扫完这一秒起几秒内自动上线。')),
+  )
+  const first = main.firstChild
+  main.insertBefore(OFFLINE_BOX, first)
+}
+function hideOfflineQR() {
+  if (OFFLINE_BOX && document.body.contains(OFFLINE_BOX)) { OFFLINE_BOX.remove(); OFFLINE_BOX = null }
+}
 
 /* ================= 顶栏用户 ================= */
 async function loadWho() {
@@ -263,6 +328,8 @@ async function tabHome() {
         ['目录', (s.st.dir || '').split(/[\\/]/).filter(Boolean).pop() || '（未填）'],
       ]),
     ),
+    el('h2', { class: 'sec' }, '服务'),
+    el('div', { class: 'card', id: 'svcBox' }, el('div', { class: 'empty' }, '探测中…')),
     el('h2', { class: 'sec' }, '快捷'),
     el('div', { class: 'row' },
       btn('重新体检', () => switchTab('health')),
@@ -277,7 +344,9 @@ async function tabHome() {
       btn('看记忆', () => switchTab('mem')),
       btn('刷新', () => switchTab('home')),
     ),
+    el('div', { id: 'extZone', style: 'margin-top:14px' }),
   )
+  renderServices()
 }
 
 function btn(label, fn, cls = 'act') {
@@ -367,6 +436,33 @@ async function tabMem(profile) {
 
   const ctx = el('pre', { class: 'block', text: r.ctx.map(m => (m.role === 'user' ? '主人' : '她') + '：' + m.content).join('\n') || '（空）' })
 
+  /* ---- 可视化：最近 14 天事件分布 + 高频词 ---- */
+  const days = []
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000)
+    days.push({ key: `${d.getMonth() + 1}/${d.getDate()}`, start: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), n: 0 })
+  }
+  const stop = new Set('的了我她是和一个有没有就不都在人啊呀呢吧吗么很到说要去你也这那'.split(''))
+  const words = {}
+  for (const e of r.episodes) {
+    const t = Number(e.t || 0)
+    const day = days.find(d => t >= d.start && t < d.start + 86400000)
+    if (day) day.n++
+    for (const w of String(e.text || '').split(/[，。！？、\s（）…~“”"]+/)) {
+      if (w.length >= 2 && w.length <= 12 && ![...w].every(c => stop.has(c))) words[w] = (words[w] || 0) + 1
+    }
+  }
+  const top = Object.entries(words).sort((a, b) => b[1] - a[1]).slice(0, 10)
+  const maxN = Math.max(1, ...days.map(d => d.n))
+  const viz = el('div', { class: 'card' },
+    el('h3', {}, '这半月她记了什么'),
+    el('div', { class: 'kv' }, el('span', { class: 'k' }, '事件'), el('span', { class: 'v' }, `${r.episodes.length} 条 · 活跃 ${days.filter(d => d.n).length}/14 天`)),
+    el('div', { class: 'stat' }, days.map(d => el('i', { style: `height:${Math.max(3, Math.round(d.n / maxN * 100))}%`, title: `${d.key} · ${d.n} 条` }))),
+    el('div', { class: 'stat-lab' }, days.filter((_, i) => i % 2 === 0).map(d => el('span', {}, d.key))),
+    top.length ? el('div', { class: 'row', style: 'margin-top:8px' },
+      top.map(([w, n]) => el('span', { class: 'pill' }, `${w}×${n}`))) : null,
+  )
+
   main.replaceChildren(
     el('div', { class: 'row', style: 'margin-bottom:4px' },
       el('span', { class: 'muted' }, '存档'), sel,
@@ -401,6 +497,8 @@ async function tabMem(profile) {
         el('span', { class: 'muted' }, '策略：' + (c.mode === 'auto' ? '自动压' : c.mode === 'manual' ? '只手动' : '到线提醒（不自动压）')),
       ),
     ) : null,
+
+    viz,
 
     el('h2', { class: 'sec' }, '摘要'),
     el('pre', { class: 'block', text: r.summary.text || '（还没压缩过）' }),
@@ -756,8 +854,255 @@ async function saveJson() {
   if (r.ok) tabCfg()
 }
 
+/* ================= 服务进程（概览卡片） ================= */
+async function renderServices() {
+  const box = $('#svcBox')
+  if (!box) return
+  try {
+    const r = await api('/api/proc')
+    if (!r.ok || !box.isConnected) return
+    box.replaceChildren(...r.list.map(s => el('div', { class: 'svc' },
+      el('span', { class: 'dot ' + (s.up ? 'ok' : 'bad') }),
+      el('span', { class: 'name' }, s.name),
+      el('span', { class: 'desc' }, s.up ? '运行中' : '没在跑 · ' + s.managed),
+      s.startable && !s.up ? btn('启动', async () => {
+        toast('启动中…')
+        const x = await post('/api/proc/start', { name: s.key })
+        toast(x.msg || (x.ok ? '已发起启动' : '失败'))
+        if (x.ok) setTimeout(renderServices, 8000)
+      }) : null,
+    )))
+  } catch { box.textContent = '探测失败' }
+}
+
+/* ================= 语音 ================= */
+async function tabVoice() {
+  const [st1, cfg] = await Promise.all([api('/api/tts'), api('/api/config')])
+  const t = cfg.config.tts || {}
+  const mk = (label, node) => el('div', { class: 'kv' }, el('span', { class: 'k' }, label), el('span', { class: 'v' }, node))
+  const full = (label, node) => el('div', { class: 'kv full' }, el('span', { class: 'k' }, label), node)
+  const chk = (id, on, label) => el('label', { style: 'display:flex;gap:6px;align-items:center;font-size:13px' },
+    el('input', { type: 'checkbox', id, ...(on ? { checked: 'checked' } : {}) }), label)
+  const txt = (label, id, v, ph = '') => full(label, el('input', { type: 'text', id, value: String(v ?? ''), placeholder: ph }))
+
+  const s = st1.status || {}
+  const audioBox = el('div', { id: 'voiceAudio' })
+
+  main.replaceChildren(
+    el('div', { class: 'card' },
+      el('h3', {}, '语音服务'),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '服务'), el('span', { class: 'v ' + (s.ok ? 'ok' : 'bad') }, s.ok ? '在线' : (s.msg || '未连上'))),
+      el('div', { class: 'kv' }, el('span', { class: 'k' }, '地址'), el('span', { class: 'v' }, s.url || t.url || '-')),
+      el('div', { class: 'row', style: 'margin-top:8px' },
+        btn('试听一句', async () => {
+          toast('合成中…')
+          audioBox.replaceChildren()
+          const r = await post('/api/tts/test', {})
+          if (r.ok && r.file) {
+            audioBox.replaceChildren(el('audio', { controls: 'controls', autoplay: 'autoplay', src: '/api/tts/audio?file=' + encodeURIComponent(r.file), style: 'width:100%' }))
+            toast('出来了，听吧')
+          } else toast(r.msg || '合成失败（服务没开？）')
+        }, 'act primary'),
+        el('span', { class: 'muted' }, '服务没开就先去把它跑起来（GPT-SoVITS 的 api_v2）'),
+      ),
+      audioBox,
+    ),
+
+    el('h2', { class: 'sec' }, '语音设置'),
+    el('div', { class: 'card' },
+      chk('cTts', t.enabled === true, '启用语音（她说话偶尔/每条都带语音）'),
+      full('引擎', el('select', { id: 'cTtsEngine' },
+        [['gptsovits', 'GPT-SoVITS'], ['openai', 'OpenAI 兼容 /v1/audio/speech']].map(([v, n]) =>
+          el('option', { value: v, ...(String(t.engine || 'gptsovits') === v ? { selected: 'selected' } : {}) }, n)))),
+      txt('服务地址', 'cTtsUrl', t.url || 'http://127.0.0.1:9880'),
+      txt('参考音频（绝对路径，音色就听它）', 'cTtsRef', t.refAudio || '', 'E:\\voice\\ref.wav'),
+      txt('参考音频里说的那句（一字不差）', 'cTtsRefText', t.refText || ''),
+      full('发送策略', el('select', { id: 'cTtsMode' },
+        [['sometimes', '偶尔发'], ['all', '每条都发'], ['off', '只发文字']].map(([v, n]) =>
+          el('option', { value: v, ...(String(t.mode || 'sometimes') === v ? { selected: 'selected' } : {}) }, n)))),
+      mk('偶尔发的概率 %', el('input', { type: 'number', id: 'cTtsChance', value: String(Math.round((t.chance ?? 0.25) * 100)), style: 'width:92px;text-align:right' })),
+      chk('cTtsKeep', t.keepText !== false, '发语音的同时也发文字'),
+    ),
+    el('div', { class: 'row', style: 'margin:12px 0' },
+      btn('保存语音设置', async () => {
+        const r = await post('/api/config', { patch: { tts: {
+          ...t,
+          enabled: $('#cTts').checked,
+          engine: $('#cTtsEngine').value,
+          url: $('#cTtsUrl').value.trim(),
+          refAudio: $('#cTtsRef').value.trim(),
+          refText: $('#cTtsRefText').value.trim(),
+          mode: $('#cTtsMode').value,
+          chance: Math.max(0, Math.min(100, Number($('#cTtsChance').value) || 0)) / 100,
+          keepText: $('#cTtsKeep').checked,
+        } } })
+        toast(r.ok ? '已保存' : (r.msg || '失败'))
+        if (r.ok) tabVoice()
+      }, 'act primary'),
+      el('span', { class: 'muted' }, '参考音频要 5~10 秒干净人声；refText 必须和音频里说的完全一致'),
+    ),
+  )
+}
+
+/* ================= 插件（模块开关 + 自定义扩展） ================= */
+async function tabMods() {
+  const r = await api('/api/modules')
+  const exts = await api('/api/ext')
+
+  const modList = el('div', { class: 'list' }, r.list.map(m => el('div', { class: 'item' },
+    el('span', { class: 'name' }, m.name),
+    el('span', { class: 'desc' }, m.desc),
+    el('span', { class: 'pill ' + (m.enabled ? 'ok' : '') }, m.enabled ? '开' : '关'),
+    btn(m.enabled ? '关' : '开', async () => {
+      const x = await post('/api/modules', { key: m.key, enabled: !m.enabled })
+      toast(x.ok ? (m.enabled ? '已关闭，即刻生效' : '已开启，即刻生效') : (x.msg || '失败'))
+      if (x.ok) tabMods()
+    }),
+  )))
+
+  const extList = el('div', { class: 'list' },
+    exts.list.length ? exts.list.map(f => el('div', { class: 'item' },
+      el('span', { class: 'name' }, f),
+      el('span', { class: 'desc' }, '已加载，重进控制台生效'),
+      btn('编辑', async () => {
+        const resp = await fetch('/ext/' + encodeURIComponent(f))
+        $('#extCode').value = await resp.text()
+        $('#extName').value = f.replace(/\.js$/, '')
+        $('#extName').scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }),
+      btn('删除', async () => {
+        if (!confirm('删掉扩展 ' + f + '？')) return
+        await del('/api/ext?name=' + encodeURIComponent(f.replace(/\.js$/, '')))
+        toast('已删除'); tabMods()
+      }, 'act danger'),
+    )) : el('div', { class: 'empty' }, '还没有扩展。写一个试试 —— 见下面的说明。'),
+  )
+
+  main.replaceChildren(
+    el('h2', { class: 'sec' }, '功能开关'),
+    el('div', { class: 'muted', style: 'margin-bottom:8px' }, '关掉的模块即刻静默，不用重启；再打开也即刻生效。'),
+    modList,
+
+    el('h2', { class: 'sec' }, '自定义扩展'),
+    el('div', { class: 'card' },
+      el('h3', {}, '扩展怎么写'),
+      el('pre', { class: 'block', style: 'max-height:none',
+        text:
+'扩展是一个 .js 文件，登录后的控制台会自动加载执行。\n' +
+'约定：把你的界面挂到 window.miaoWuExt 上——\n\n' +
+'window.miaoWuExt = {\n' +
+'  name: "我的小工具",            // 显示名\n' +
+'  render(box, { el, api, post, toast }) {  // 控制台打开时调用\n' +
+'    box.append(el("button", { class: "act",\n' +
+'      onclick: async () => {\n' +
+'        const r = await api("/api/state")\n' +
+'        toast("当前角色：" + (r.card ? r.card.name : "无"))\n' +
+'      },\n' +
+'    }, "报个状态"))\n' +
+'  },\n' +
+'}\n\n' +
+'能用的东西：el/api/post/toast，以及整个后端的 /api/* 接口。\n' +
+'文件保存在 config/webui-ext/，想分享给别人直接发那个 .js 文件。' }),
+    ),
+    el('div', { class: 'list' }, extList),
+    el('h2', { class: 'sec' }, '新建 / 编辑'),
+    el('div', { class: 'row' },
+      el('input', { type: 'text', id: 'extName', placeholder: '扩展名（字母数字-_）', style: 'width:220px' }),
+      btn('保存', async () => {
+        const name = $('#extName').value.trim()
+        const code = $('#extCode').value
+        if (!name) return toast('先起个名')
+        const x = await post('/api/ext', { name, code })
+        toast(x.ok ? '已保存，刷新页面生效' : (x.msg || '失败'))
+        if (x.ok) tabMods()
+      }, 'act primary'),
+    ),
+    el('textarea', { id: 'extCode', spellcheck: 'false', style: 'min-height:200px',
+      placeholder: 'window.miaoWuExt = { name: "...", render(box, h) { ... } }' }),
+  )
+}
+
+/* ================= API 接入（providers 管理） ================= */
+async function tabApi() {
+  const r = await api('/api/providers')
+  const rows = el('div', { class: 'list' }, r.list.map(p => el('div', { class: 'item', style: 'flex-wrap:wrap' },
+    el('span', { class: 'name' }, (p.name === r.active ? '▸ ' : '') + p.name),
+    el('span', { class: 'pill' }, p.type),
+    el('span', { class: 'desc' }, p.model + ' · ' + p.baseUrl + ' · key ' + p.key),
+    p.name !== r.active ? btn('启用', async () => {
+      const x = await post('/api/active', { name: p.name })
+      toast(x.ok ? '已切到 ' + p.name : (x.msg || '失败'))
+      if (x.ok) tabApi()
+    }) : el('span', { class: 'pill ok' }, '使用中'),
+    btn('测试', async () => {
+      toast('打一句试试…')
+      const x = await post('/api/providers/test', { name: p.name })
+      toast(x.ok ? `✓ ${p.name} 正常（${x.ms}ms）：${x.sample}` : `✗ 失败：${(x.msg || '').slice(0, 80)}`)
+    }),
+    btn('删', async () => {
+      if (!confirm('删掉后端 ' + p.name + '？')) return
+      const x = await post('/api/providers/delete', { name: p.name })
+      toast(x.msg || (x.ok ? '已删除' : '失败'))
+      if (x.ok) tabApi()
+    }, 'act danger'),
+  )))
+
+  const f = (label, id, v = '', ph = '', type = 'text') => el('div', { class: 'kv full' },
+    el('span', { class: 'k' }, label),
+    el('input', { type, id, value: String(v), placeholder: ph }))
+
+  main.replaceChildren(
+    el('div', { class: 'card' },
+      el('h3', {}, '当前使用'), el('div', { class: 'kv' },
+        el('span', { class: 'k' }, 'active'),
+        el('span', { class: 'v ok' }, r.active)),
+      el('div', { class: 'muted', style: 'margin-top:4px' }, '聊天 / 绘图方案 / 压缩默认都走它；在「配置」页也能切。'),
+    ),
+    el('h2', { class: 'sec' }, '后端（' + r.list.length + '）'),
+    rows,
+    el('h2', { class: 'sec' }, '新增 / 修改'),
+    el('div', { class: 'card' },
+      f('名字（唯一的，同名即修改）', 'apName', '', 'my-gemini'),
+      f('模型', 'apModel', '', 'gemini-3.8-flash-high'),
+      f('接口地址', 'apUrl', 'http://127.0.0.1:8317/v1', 'https://api.xxx.com/v1'),
+      f('apiKey（留空 = 沿用旧的）', 'apKey', '', 'sk-...', 'password'),
+      f('降级模型（可选）', 'apFb', '', 'claude-sonnet-5-5-high'),
+      el('div', { class: 'row', style: 'margin-top:10px' },
+        btn('保存', async () => {
+          const name = $('#apName').value.trim()
+          if (!name) return toast('先起名')
+          const x = await post('/api/providers/save', { name, patch: {
+            model: $('#apModel').value.trim(),
+            baseUrl: $('#apUrl').value.trim(),
+            apiKey: $('#apKey').value.trim(),
+            fallbackModel: $('#apFb').value.trim(),
+            type: 'openai',
+          } })
+          toast(x.ok ? '已保存' : (x.msg || '失败'))
+          if (x.ok) tabApi()
+        }, 'act primary'),
+        btn('保存并启用', async () => {
+          const name = $('#apName').value.trim()
+          if (!name) return toast('先起名')
+          await post('/api/providers/save', { name, patch: {
+            model: $('#apModel').value.trim(),
+            baseUrl: $('#apUrl').value.trim(),
+            apiKey: $('#apKey').value.trim(),
+            fallbackModel: $('#apFb').value.trim(),
+            type: 'openai',
+          } })
+          const x = await post('/api/active', { name })
+          toast(x.ok ? '已启用 ' + name : (x.msg || '失败'))
+          if (x.ok) tabApi()
+        }),
+        el('span', { class: 'muted' }, '保存即热加载，不用重启'),
+      ),
+    ),
+  )
+}
+
 /* ================= 路由 ================= */
-const TABS = { home: tabHome, chars: tabChars, mem: () => tabMem(), clock: tabClock, st: tabSt, health: tabHealth, cfg: tabCfg }
+const TABS = { home: tabHome, chars: tabChars, mem: () => tabMem(), clock: tabClock, st: tabSt, voice: tabVoice, mods: tabMods, api: tabApi, health: tabHealth, cfg: tabCfg }
 
 function switchTab(t) {
   TAB = t
@@ -780,6 +1125,42 @@ loadWho().finally(() => {
   const h = (location.hash || '').replace('#', '')
   switchTab(TABS[h] ? h : 'home')
 })
+
+/* 二维码常驻轮询：掉线自动出码，扫码后自动消失 */
+pollQR()
+
+/* ================= 自定义扩展 ================= */
+async function loadExts() {
+  try {
+    const r = await api('/api/ext')
+    if (!r.ok) return
+    for (const f of r.list) {
+      const s = document.createElement('script')
+      s.src = '/ext/' + encodeURIComponent(f)
+      s.onload = () => {
+        const ext = window.miaoWuExt
+        if (!ext || typeof ext.render !== 'function') return
+        // 给扩展一个落点：每次切到概览页都重新渲染它的容器
+        const mount = () => {
+          const box = $('#extZone')
+          if (!box || !box.isConnected) return
+          const one = el('div', { class: 'card', style: 'margin-top:12px' },
+            el('h3', {}, ext.name || f))
+          try { ext.render(one, { el, api, post, toast, btn }) } catch (e) { one.append(el('div', { class: 'bad' }, '扩展出错：' + e.message)) }
+          box.append(one)
+        }
+        document.body.addEventListener('tab:home', mount)
+        mount()
+      }
+      document.head.append(s)
+    }
+  } catch {}
+}
+const _switchTab = switchTab
+switchTab = function (t) {
+  _switchTab(t)
+  if (t === 'home') setTimeout(() => document.body.dispatchEvent(new Event('tab:home')), 100)
+}
 </script>
 </body>
 </html>
