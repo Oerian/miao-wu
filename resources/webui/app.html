@@ -350,59 +350,148 @@ function btn(label, fn, cls = 'act') {
 }
 
 /* ================= 角色 ================= */
+const charOpen = new Set() // 展开状态的卡 id
+
 async function tabChars() {
   const [s, data] = await Promise.all([api('/api/state'), api('/api/chars')])
-  const list = el('div', { class: 'list' },
-    data.list.map(c => el('div', { class: 'item' },
-      el('span', { class: 'name' }, (c.id === (s.card && s.card.id) ? '▸ ' : '') + c.name),
+  STATE = s
+
+  const renderItem = c => {
+    const open = charOpen.has(c.id)
+    const head = el('div', { class: 'item', style: 'cursor:pointer;align-items:center',
+      onclick: () => toggleChar(c.id) },
+      el('img', { src: '/avatar?id=' + encodeURIComponent(c.id), alt: '',
+        style: 'width:38px;height:38px;border-radius:10px;object-fit:cover;flex:none;background:#efe7dd',
+        onerror: e => { e.target.style.display = 'none' } }),
+      el('span', { class: 'name', style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' },
+        (c.id === (s.card && s.card.id) ? '▸ ' : '') + c.name,
+        el('span', { class: 'muted', style: 'font-size:11px;margin-left:6px' }, c.id)),
+      el('span', { class: 'desc', style: 'max-width:32%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, (c.tags || []).join(' · ')),
       el('span', { class: 'pill' }, c.format),
-      el('span', { class: 'desc' }, (c.tags || []).join(' · ')),
-      btn('看', () => showChar(c.id)),
-    )),
-  )
-  const imp = el('div', { class: 'row' },
-    el('input', { type: 'text', id: 'impPath', placeholder: '本机角色卡路径（md / json / png）', style: 'flex:1;min-width:200px' }),
+      el('span', { class: 'go' }, open ? '收起 ▴' : '展开 ▾'),
+    )
+    const body = el('div', { id: 'chb-' + c.id, style: open ? '' : 'display:none' })
+    return el('div', {}, head, body)
+  }
+
+  const imp = el('div', { class: 'row', style: 'flex-wrap:wrap' },
+    el('input', { type: 'text', id: 'impPath', placeholder: '本机角色卡路径（md / json / png）', style: 'flex:2;min-width:200px' }),
+    el('input', { type: 'text', id: 'impCover', placeholder: '自定义封面图路径（可空，png/jpg/webp）', style: 'flex:1;min-width:160px' }),
     btn('导入', async () => {
       const p = $('#impPath').value.trim()
-      if (!p) return toast('先填路径')
-      const r = await post('/api/char/import', { path: p })
+      if (!p) return toast('先填卡路径')
+      const r = await post('/api/char/import', { path: p, cover: $('#impCover').value.trim() })
       toast(r.msg || (r.ok ? '导入成功' : '失败'))
       if (r.ok) tabChars()
     }, 'act primary'),
   )
+
+  /* ---- 写卡助手 ---- */
+  const writer = el('div', { class: 'card' },
+    el('h3', {}, '写卡助手'),
+    el('textarea', { id: 'wBrief', rows: 3, placeholder: '一句话需求，例：怕打雷的猫娘，嘴硬心软，住海边小镇', style: 'width:100%;box-sizing:border-box' }),
+    el('div', { class: 'row', style: 'margin-top:6px' },
+      el('input', { type: 'text', id: 'wStyle', placeholder: '额外要求（可空）：说话再冲一点', style: 'flex:1;min-width:180px' }),
+      btn('生成', genCard, 'act primary'),
+    ),
+    el('div', { class: 'muted', style: 'margin-top:6px' }, '生成完整卡（人设 / 示例对话 / 开场白），存进卡池立刻能用；写完 md 卡，也能一键导出成酒馆通用 JSON。'),
+    el('div', { id: 'wOut', style: 'margin-top:8px' }),
+  )
+
   main.replaceChildren(
-    el('h2', { class: 'sec' }, '角色卡（' + data.list.length + '）'),
-    list,
+    writer,
+    el('h2', { class: 'sec' }, '角色卡（' + data.list.length + '）· 点行展开'),
+    el('div', { class: 'list' }, data.list.map(renderItem)),
     el('h2', { class: 'sec' }, '导入'),
     imp,
     el('div', { class: 'muted', style: 'margin-top:8px;word-break:break-all' }, '目录：' + data.dir),
-    el('h2', { class: 'sec' }, '详情'),
-    el('div', { id: 'charBox' }, el('div', { class: 'empty' }, '点上面的「看」')),
   )
 }
 
-async function showChar(id) {
-  const r = await api('/api/char?id=' + encodeURIComponent(id))
-  const box = $('#charBox')
-  if (!r.ok) return (box.textContent = r.msg)
-  const c = r.card
-  const sec = (t, v) => v ? [el('h2', { class: 'sec' }, t), el('pre', { class: 'block', text: v })] : []
-  box.replaceChildren(
-    el('div', { class: 'row', style: 'margin-bottom:8px' },
-      el('b', {}, c.name), el('span', { class: 'pill' }, c.format || '?'),
-      c.inheritedFrom.length ? el('span', { class: 'muted' }, '继承：' + c.inheritedFrom.join(' → ')) : null,
-    ),
-    ...sec('你是谁', c.description),
-    ...sec('性格', c.personality),
-    ...sec('说话方式', c.styleExtra),
-    ...sec('关系', c.relExtra),
-    ...sec('小习惯', c.habitExtra),
-    ...sec('关于画图', c.drawExtra),
-    ...sec('场景', c.scenario),
-    ...sec('示例对话', c.mesExample),
-    ...sec('开场白', [c.firstMes, ...(c.greetingPool || [])].filter(Boolean).join('\n---\n')),
+async function genCard() {
+  const brief = $('#wBrief').value.trim()
+  if (!brief) return toast('先写需求')
+  const out = $('#wOut')
+  out.replaceChildren(el('div', { class: 'empty' }, '写卡中，30 秒上下…'))
+  const r = await post('/api/char/write', { brief, styleHint: $('#wStyle').value.trim() })
+  if (!r.ok) return out.replaceChildren(el('div', { class: 'bad' }, r.msg || '失败'))
+  out.replaceChildren(
+    el('div', { class: 'kv' }, el('span', { class: 'k' }, '结果'),
+      el('span', { class: 'v ok' }, `${r.card.name}（id：${r.id}）已进卡池`)),
+    el('pre', { class: 'block', text: String(r.markdown || '').slice(0, 2000) }),
+    el('div', { class: 'muted' }, '不满意就在下面的卡里展开它，用「改卡」提要求。'),
   )
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function toggleChar(id) {
+  const body = $('#chb-' + id)
+  if (!body) return
+  if (charOpen.has(id)) { charOpen.delete(id); body.style.display = 'none'; return }
+  charOpen.add(id)
+  body.style.display = ''
+  if (!body.dataset.loaded) {
+    body.dataset.loaded = '1'
+    body.append(el('div', { class: 'empty' }, '展开中…'))
+    await fillChar(body, id)
+  }
+}
+
+async function fillChar(body, id) {
+  const r = await api('/api/char?id=' + encodeURIComponent(id)).catch(e => ({ ok: false, msg: e.message }))
+  if (!r.ok) return body.replaceChildren(el('div', { class: 'bad' }, r.msg || '读取失败'))
+  const c = r.card
+  const sec = (t, v) => v ? [el('h3', { style: 'margin:10px 0 2px' }, t), el('pre', { class: 'block', text: v })] : []
+  const actRow = el('div', { class: 'row', style: 'flex-wrap:wrap;margin-top:8px' },
+    btn('换封面', async () => {
+      const p = prompt('封面图完整路径（png / jpg / webp / gif）')
+      if (!p) return
+      const x = await post('/api/char/cover', { id, path: p.trim() })
+      toast(x.msg || (x.ok ? '换好了' : '失败'))
+      if (x.ok) tabChars()
+    }),
+    btn('导出酒馆 JSON', async () => {
+      const x = await post('/api/char/export', { id })
+      toast(x.msg || (x.ok ? '已导出' : '失败'))
+    }),
+    btn('改卡', () => {
+      const form = $('#rv-' + id)
+      form.style.display = form.style.display === 'none' ? '' : 'none'
+    }),
+  )
+  const revise = el('div', { id: 'rv-' + id, style: 'display:none;margin-top:8px' },
+    el('div', { class: 'row', style: 'flex-wrap:wrap' },
+      el('input', { type: 'text', id: 'rvi-' + id, placeholder: '改什么？例：说话再懒一点，少用感叹号', style: 'flex:1;min-width:180px' }),
+      btn('提交改卡', async () => {
+        const ins = $('#rvi-' + id).value.trim()
+        if (!ins) return toast('先写要改什么')
+        toast('改卡中…')
+        const x = await post('/api/char/revise', { id, instruction: ins })
+        toast(x.msg || (x.ok ? '改好了' : '失败'))
+        if (x.ok) { body.dataset.loaded = ''; await fillChar(body, id) }
+      }, 'act primary'),
+    ),
+  )
+  body.replaceChildren(
+    el('div', { class: 'card', style: 'margin:0 0 10px' },
+      el('div', { class: 'row', style: 'flex-wrap:wrap' },
+        el('img', { src: '/avatar?id=' + encodeURIComponent(id), alt: '',
+          style: 'width:56px;height:56px;border-radius:12px;object-fit:cover;background:#efe7dd',
+          onerror: e => { e.target.style.display = 'none' } }),
+        el('b', {}, c.name), el('span', { class: 'pill' }, c.format || '?'),
+        c.inheritedFrom.length ? el('span', { class: 'muted' }, '继承：' + c.inheritedFrom.join(' → ')) : null,
+      ),
+      actRow, revise,
+      ...sec('你是谁', c.description),
+      ...sec('性格', c.personality),
+      ...sec('说话方式', c.styleExtra),
+      ...sec('关系', c.relExtra),
+      ...sec('小习惯', c.habitExtra),
+      ...sec('关于画图', c.drawExtra),
+      ...sec('场景', c.scenario),
+      ...sec('示例对话', c.mesExample),
+      ...sec('开场白', [c.firstMes, ...(c.greetingPool || [])].filter(Boolean).join('\n---\n')),
+    ),
+  )
 }
 
 /* ================= 记忆 ================= */
@@ -584,6 +673,10 @@ async function tabSt() {
         toast(x.msg || (x.ok ? '已发起启动' : '失败'))
         if (x.ok) setTimeout(tabSt, 8000)
       }, 'act primary') : null,
+    stSvc?.up ? btn('打开酒馆', async () => {
+        const x = await post('/api/open', { target: 'sillytavern' })
+        toast(x.msg || (x.ok ? '已用 Chrome 打开' : '失败'))
+      }) : null,
     ),
     el('div', { class: 'muted', style: 'margin-top:6px' }, '启用/关闭酒馆直连在「配置」页的高级 JSON 里，或直接改 sillytavern.enabled'),
   )
@@ -851,6 +944,10 @@ async function saveJson() {
 }
 
 /* ================= 服务进程（概览卡片） ================= */
+
+/* 有自己网页的服务：一键用 Chrome 打开（走 /api/open） */
+const OPENABLE = { comfyui: true, sillytavern: true }
+
 async function renderServices() {
   const box = $('#svcBox')
   if (!box) return
@@ -867,6 +964,11 @@ async function renderServices() {
         toast(x.msg || (x.ok ? '已发起启动' : '失败'))
         if (x.ok) setTimeout(renderServices, 8000)
       }) : null,
+      OPENABLE[s.key] ? btn('打开', async () => {
+        const x = await post('/api/open', { target: s.key })
+        toast(x.msg || (x.ok ? '已用 Chrome 打开' : '失败'))
+        if (!x.ok && /还没在跑/.test(x.msg || '')) setTimeout(renderServices, 1000)
+      }, s.up ? '' : 'act') : null,
     )))
   } catch { box.textContent = '探测失败' }
 }
@@ -1058,12 +1160,25 @@ async function tabApi() {
     rows,
     el('h2', { class: 'sec' }, '新增 / 修改'),
     el('div', { class: 'card' },
-      f('名字（唯一的，同名即修改）', 'apName', '', 'my-gemini'),
-      f('模型', 'apModel', '', 'gemini-3.8-flash-high'),
+      f('名字（唯一的，同名即修改）', 'apName', '', 'gemini-flash'),
+      el('div', { class: 'kv full' },
+        el('span', { class: 'k' }, '模型（官方名）'),
+        el('input', { type: 'text', id: 'apModel', list: 'apModels', placeholder: 'gemini-3.8-flash-high', style: 'flex:1' })),
+      el('datalist', { id: 'apModels' }),
       f('接口地址', 'apUrl', 'http://127.0.0.1:8317/v1', 'https://api.xxx.com/v1'),
       f('apiKey（留空 = 沿用旧的）', 'apKey', '', 'sk-...', 'password'),
-      f('降级模型（可选）', 'apFb', '', 'claude-sonnet-5-5-high'),
-      el('div', { class: 'row', style: 'margin-top:10px' },
+      f('降级模型（可选）', 'apFb', '', 'gemini-3-flash'),
+      el('div', { class: 'row', style: 'margin-top:10px;flex-wrap:wrap' },
+        btn('拉官方模型名', async () => {
+          const name = $('#apName').value.trim() || ''
+          toast('问上游要模型列表…')
+          const x = await api('/api/models' + (name ? '?name=' + encodeURIComponent(name) : ''))
+          if (!x.ok) return toast(x.msg || '拉不到')
+          if (!x.list.length) return toast('上游没报模型')
+          const dl = $('#apModels')
+          dl.replaceChildren(...x.list.map(m => el('option', { value: m })))
+          toast(`拿到 ${x.list.length} 个官方模型名，模型输入框可以选了：${x.list.slice(0, 3).join('、')}…`)
+        }),
         btn('保存', async () => {
           const name = $('#apName').value.trim()
           if (!name) return toast('先起名')

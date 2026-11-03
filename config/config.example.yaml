@@ -8,17 +8,20 @@
 enabled: true
 
 # 默认后端。对应下面 providers 里的某个 key
-active: cpa-38
+active: gemini-flash
 
 # ------------------------------------------------------------
 # 对话后端
 # type: openai = OpenAI 兼容接口（官方 / 各类中转 / vLLM 都行）
 #       ollama = 本地 Ollama 原生接口
 #       gemini = Google 原生接口（直连时用，走中转就用 openai）
+#
+# provider 的 key 用见名知义的官方风格命名，model 一律填
+# 上游 /v1/models 实际投放的官方模型名（WebUI「API」页可以一键拉列表）
 # ------------------------------------------------------------
 providers:
-  # 主力：gemini-3.8-flash-high。结构化输出稳，写绘图 tag 讲究
-  cpa-38:
+  # 主力：结构化输出稳，写绘图 tag 讲究
+  gemini-flash:
     type: openai
     baseUrl: http://127.0.0.1:8317/v1
     apiKey: ""
@@ -28,7 +31,7 @@ providers:
     fallbackModel: gemini-3-flash
 
   # 快速版，2.6s/条，语气最贴「短、懒」
-  cpa:
+  gemini-lite:
     type: openai
     baseUrl: http://127.0.0.1:8317/v1
     apiKey: ""
@@ -38,7 +41,7 @@ providers:
     fallbackModel: gemini-3.1-flash-lite
 
   # Claude：动作描写更细腻，代价是慢一截
-  cpa-claude:
+  claude-sonnet:
     type: openai
     baseUrl: http://127.0.0.1:8317/v1
     apiKey: ""

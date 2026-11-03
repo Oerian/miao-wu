@@ -335,6 +335,15 @@ check("解析出名字和正文", c2.name === "小满" && c2.description.include
 check("slug 优先用 front-matter 的 id", pw.slugOf(c2.name, fixed) === "xiaoman")
 check("预览会截断", [...pw.previewOf("字".repeat(2000), 100)].length <= 110)
 
+/* ---- 统一卡 ID：ASCII 清洗，中文走哈希，绝不拼音 ---- */
+const ch = await import("../lib/character.js")
+check("ASCII 名清洗成小写标识符", ch.makeCardId("Seraphina!") === "seraphina")
+const cnId = ch.makeCardId("小满")
+check("中文名走哈希不搞拼音", /^char_[0-9a-f]{8}$/.test(cnId))
+check("同一个中文名哈希稳定", ch.makeCardId("小满") === cnId)
+check("重名自动加序号", ch.makeCardId("小满", new Set([cnId])) === cnId + "_2")
+check("slugOf 兜底也是统一代码", pw.slugOf("栗子", "") === ch.makeCardId("栗子"))
+
 /* ============================================================ 12. 真跑一轮 */
 
 if (WITH_LLM) {
